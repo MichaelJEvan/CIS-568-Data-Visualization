@@ -1,0 +1,296 @@
+country,year,gdp,enrollment,gdp_pct_change,enrollment_pct_change,both_increase
+Algeria,2019,4143,106,,,False
+Algeria,2020,3610,109,-12.9,2.3,False
+Algeria,2021,4161,105,15.3,-3.5,False
+Algeria,2022,4962,106,19.3,1.0,True
+Algeria,2023,5364,106,8.1,0.1,True
+Angola,2019,2568,,,,False
+Angola,2020,1639,,-36.2,,False
+Angola,2021,2024,89,23.5,,False
+Angola,2022,3180,,57.1,,False
+Angola,2023,2464,87,-22.5,,False
+Benin,2019,1131,107,,,False
+Benin,2020,1200,104,6.1,-2.6,False
+Benin,2021,1319,106,9.9,1.5,True
+Benin,2022,1266,108,-4.0,2.3,False
+Benin,2023,1394,,10.1,,False
+Botswana,2019,7159,,,,False
+Botswana,2020,6311,,-11.9,,False
+Botswana,2021,7808,105,23.7,,False
+Botswana,2022,8329,109,6.7,4.4,True
+Botswana,2023,7820,,-6.1,,False
+Burkina Faso,2019,765,90,,,False
+Burkina Faso,2020,825,88,7.9,-2.3,False
+Burkina Faso,2021,896,87,8.5,-0.8,False
+Burkina Faso,2022,836,82,-6.6,-5.5,False
+Burkina Faso,2023,883,72,5.6,-12.2,False
+Burundi,2019,275,,,,False
+Burundi,2020,274,,-0.5,,False
+Burundi,2021,289,,5.5,,False
+Burundi,2022,329,,13.9,,False
+Burundi,2023,289,,-12.0,,False
+Cabo Verde,2019,4381,105,,,False
+Cabo Verde,2020,3539,103,-19.2,-1.7,False
+Cabo Verde,2021,3971,103,12.2,-0.4,False
+Cabo Verde,2022,4432,103,11.6,-0.1,False
+Cabo Verde,2023,4961,,11.9,,False
+Cameroon,2019,1555,107,,,False
+Cameroon,2020,1556,,0.0,,False
+Cameroon,2021,1672,110,7.5,,False
+Cameroon,2022,1605,112,-4.0,2.2,False
+Cameroon,2023,1737,114,8.2,1.7,True
+Central African Republic,2019,449,,,,False
+Central African Republic,2020,463,,3.0,,False
+Central African Republic,2021,492,,6.3,,False
+Central African Republic,2022,467,,-5.1,,False
+Central African Republic,2023,496,,6.1,,False
+Chad,2019,896,83,,,False
+Chad,2020,849,,-5.2,,False
+Chad,2021,895,86,5.4,,False
+Chad,2022,881,87,-1.6,1.0,False
+Chad,2023,913,88,3.6,1.5,True
+Comoros,2019,1519,,,,False
+Comoros,2020,1526,,0.4,,False
+Comoros,2021,1584,87,3.8,,False
+Comoros,2022,1553,,-2.0,,False
+Comoros,2023,1703,,9.7,,False
+Congo,2019,2488,,,,False
+Congo,2020,1994,,-19.9,,False
+Congo,2021,2271,,13.9,,False
+Congo,2022,2309,,1.7,,False
+Congo,2023,2291,,-0.8,,False
+"Congo, Dem. Rep",2019,,,,,False
+"Congo, Dem. Rep",2020,,116,,,False
+"Congo, Dem. Rep",2021,,120,,3.6,False
+"Congo, Dem. Rep",2022,,,,,False
+"Congo, Dem. Rep",2023,,118,,,False
+"Congo, Rep",2019,,,,,False
+"Congo, Rep",2020,,,,,False
+"Congo, Rep",2021,,,,,False
+"Congo, Rep",2022,,,,,False
+"Congo, Rep",2023,,88,,,False
+Cote d'Ivoire,2019,,88,,,False
+Cote d'Ivoire,2020,,89,,0.2,False
+Cote d'Ivoire,2021,,86,,-3.2,False
+Cote d'Ivoire,2022,,86,,0.7,False
+Cote d'Ivoire,2023,,92,,6.2,False
+Côte d'Ivoire,2019,2142,,,,False
+Côte d'Ivoire,2020,2180,,1.8,,False
+Côte d'Ivoire,2021,2456,,12.7,,False
+Côte d'Ivoire,2022,2309,,-6.0,,False
+Côte d'Ivoire,2023,2528,,9.5,,False
+Democratic Republic of the Congo,2019,509,,,,False
+Democratic Republic of the Congo,2020,472,,-7.3,,False
+Democratic Republic of the Congo,2021,533,,12.9,,False
+Democratic Republic of the Congo,2022,607,,13.8,,False
+Democratic Republic of the Congo,2023,655,,8.0,,False
+Djibouti,2019,2837,,,,False
+Djibouti,2020,2878,,1.4,,False
+Djibouti,2021,3020,,4.9,,False
+Djibouti,2022,3232,,7.0,,False
+Djibouti,2023,3469,,7.3,,False
+Egypt,2019,3102,,,,False
+Egypt,2020,3571,,15.1,,False
+Egypt,2021,3838,,7.5,,False
+Egypt,2022,3634,,-5.3,,False
+Egypt,2023,2895,,-20.3,,False
+"Egypt, Arab Rep",2019,,94,,,False
+"Egypt, Arab Rep",2020,,96,,1.5,False
+"Egypt, Arab Rep",2021,,97,,1.4,False
+"Egypt, Arab Rep",2022,,90,,-7.7,False
+"Egypt, Arab Rep",2023,,96,,7.2,False
+Equatorial Guinea,2019,6804,,,,False
+Equatorial Guinea,2020,5764,,-15.3,,False
+Equatorial Guinea,2021,6946,,20.5,,False
+Equatorial Guinea,2022,7478,,7.7,,False
+Equatorial Guinea,2023,6558,,-12.3,,False
+Eritrea,2019,612,,,,False
+Eritrea,2020,642,,4.9,,False
+Eritrea,2021,660,,2.9,,False
+Eritrea,2022,699,90,5.9,,False
+Eritrea,2023,656,,-6.2,,False
+Eswatini,2019,,124,,,False
+Eswatini,2020,,,,,False
+Eswatini,2021,,,,,False
+Eswatini,2022,,117,,,False
+Eswatini,2023,,117,,-0.6,False
+Ethiopia,2019,800,,,,False
+Ethiopia,2020,813,113,1.6,,False
+Ethiopia,2021,813,101,0.0,-10.1,False
+Ethiopia,2022,949,85,16.7,-16.5,False
+Ethiopia,2023,1241,84,30.8,-1.1,False
+Gabon,2019,7441,100,,,False
+Gabon,2020,6606,,-11.2,,False
+Gabon,2021,8181,,23.9,,False
+Gabon,2022,8409,,2.8,,False
+Gabon,2023,8071,,-4.0,,False
+Gambia,2019,738,,,,False
+Gambia,2020,720,,-2.4,,False
+Gambia,2021,795,,10.4,,False
+Gambia,2022,836,,5.1,,False
+Gambia,2023,890,,6.4,,False
+"Gambia, The",2019,,95,,,False
+"Gambia, The",2020,,97,,1.9,False
+"Gambia, The",2021,,96,,-0.6,False
+"Gambia, The",2022,,97,,1.0,False
+"Gambia, The",2023,,99,,1.5,False
+Ghana,2019,2186,100,,,False
+Ghana,2020,2197,98,0.5,-1.5,False
+Ghana,2021,2446,99,11.3,1.1,True
+Ghana,2022,2240,98,-8.4,-1.2,False
+Ghana,2023,2260,,0.9,,False
+Guinea,2019,1031,,,,False
+Guinea,2020,1054,100,2.2,,False
+Guinea,2021,1186,,12.6,,False
+Guinea,2022,1390,,17.2,,False
+Guinea,2023,1597,,14.9,,False
+Guinea-Bissau,2019,694,,,,False
+Guinea-Bissau,2020,694,,-0.0,,False
+Guinea-Bissau,2021,768,,10.7,,False
+Guinea-Bissau,2022,749,,-2.4,,False
+Guinea-Bissau,2023,855,,14.1,,False
+Kenya,2019,1960,78,,,False
+Kenya,2020,1928,92,-1.7,18.6,False
+Kenya,2021,2061,94,6.9,2.0,True
+Kenya,2022,2110,99,2.3,5.1,True
+Kenya,2023,1952,98,-7.5,-0.3,False
+Lesotho,2019,1082,91,,,False
+Lesotho,2020,919,88,-15.1,-3.9,False
+Lesotho,2021,1067,85,16.1,-3.1,False
+Lesotho,2022,1030,84,-3.4,-1.6,False
+Lesotho,2023,916,82,-11.1,-2.4,False
+Liberia,2019,627,,,,False
+Liberia,2020,672,,7.2,,False
+Liberia,2021,784,,16.7,,False
+Liberia,2022,849,,8.2,,False
+Liberia,2023,917,,8.1,,False
+Madagascar,2019,500,125,,,False
+Madagascar,2020,451,127,-9.8,1.3,False
+Madagascar,2021,483,140,7.3,10.8,True
+Madagascar,2022,504,133,4.1,-5.3,False
+Madagascar,2023,509,131,1.0,-1.7,False
+Malawi,2019,581,139,,,False
+Malawi,2020,603,136,3.7,-2.0,False
+Malawi,2021,617,127,2.5,-6.9,False
+Malawi,2022,607,127,-1.7,-0.4,False
+Malawi,2023,598,136,-1.4,7.4,False
+Mali,2019,820,,,,False
+Mali,2020,804,,-1.9,,False
+Mali,2021,862,,7.2,,False
+Mali,2022,814,,-5.6,,False
+Mali,2023,869,73,6.8,,False
+Mauritania,2019,1767,90,,,False
+Mauritania,2020,1796,94,1.6,3.9,True
+Mauritania,2021,1948,,8.5,,False
+Mauritania,2022,1960,,0.6,,False
+Mauritania,2023,2121,104,8.2,,False
+Mauritius,2019,11223,95,,,False
+Mauritius,2020,8890,95,-20.8,-0.4,False
+Mauritius,2021,8975,100,1.0,5.1,True
+Mauritius,2022,10131,,12.9,,False
+Mauritius,2023,11304,111,11.6,,False
+Mongolia,2019,,94,,,False
+Mongolia,2020,,92,,-1.9,False
+Mongolia,2021,,92,,-0.3,False
+Mongolia,2022,,93,,1.4,False
+Mongolia,2023,,93,,-0.3,False
+Morocco,2019,3560,110,,,False
+Morocco,2020,3317,112,-6.8,2.1,False
+Morocco,2021,3843,113,15.9,0.5,True
+Morocco,2022,3508,117,-8.7,3.2,False
+Morocco,2023,3830,118,9.2,0.9,True
+Mozambique,2019,519,118,,,False
+Mozambique,2020,462,119,-10.9,0.9,False
+Mozambique,2021,510,,10.3,,False
+Mozambique,2022,578,119,13.4,,False
+Mozambique,2023,623,,7.7,,False
+Namibia,2019,4732,124,,,False
+Namibia,2020,3879,122,-18.0,-1.5,False
+Namibia,2021,4413,122,13.8,-0.4,False
+Namibia,2022,4349,120,-1.4,-1.2,False
+Namibia,2023,4168,119,-4.2,-0.7,False
+Niger,2019,563,67,,,False
+Niger,2020,579,,3.0,,False
+Niger,2021,609,66,5.0,,False
+Niger,2022,610,66,0.2,0.6,True
+Niger,2023,643,67,5.4,0.9,True
+Nigeria,2019,2265,,,,False
+Nigeria,2020,2009,84,-11.3,,False
+Nigeria,2021,2009,84,-0.0,-0.7,False
+Nigeria,2022,2129,,6.0,,False
+Nigeria,2023,1646,90,-22.7,,False
+Rwanda,2019,810,138,,,False
+Rwanda,2020,779,,-3.9,,False
+Rwanda,2021,829,151,6.4,,False
+Rwanda,2022,975,149,17.7,-1.5,False
+Rwanda,2023,1010,152,3.6,2.1,True
+Sao Tome and Principe,2019,2018,,,,False
+Sao Tome and Principe,2020,2191,,8.6,,False
+Sao Tome and Principe,2021,2380,,8.6,,False
+Sao Tome and Principe,2022,2408,,1.1,,False
+Sao Tome and Principe,2023,2963,,23.1,,False
+Senegal,2019,1431,83,,,False
+Senegal,2020,1461,85,2.1,2.0,True
+Senegal,2021,1598,84,9.4,-1.0,False
+Senegal,2022,1565,84,-2.1,0.3,False
+Senegal,2023,1682,85,7.5,1.4,True
+Seychelles,2019,15884,119,,,False
+Seychelles,2020,11494,114,-27.6,-4.3,False
+Seychelles,2021,12092,110,5.2,-4.0,False
+Seychelles,2022,16395,98,35.6,-10.8,False
+Seychelles,2023,16735,97,2.1,-0.6,False
+Sierra Leone,2019,844,146,,,False
+Sierra Leone,2020,845,143,0.2,-1.9,False
+Sierra Leone,2021,885,158,4.7,10.4,True
+Sierra Leone,2022,860,163,-2.8,3.5,False
+Sierra Leone,2023,758,159,-11.9,-2.3,False
+Somalia,2019,540,,,,False
+Somalia,2020,518,,-4.0,,False
+Somalia,2021,549,,6.0,,False
+Somalia,2022,573,,4.4,,False
+Somalia,2023,597,,4.2,,False
+South Africa,2019,6534,,,,False
+South Africa,2020,5586,,-14.5,,False
+South Africa,2021,6831,,22.3,,False
+South Africa,2022,6497,,-4.9,,False
+South Africa,2023,5976,,-8.0,,False
+South Sudan,2019,412,,,,False
+South Sudan,2020,393,,-4.6,,False
+South Sudan,2021,395,,0.4,,False
+South Sudan,2022,395,,0.1,,False
+South Sudan,2023,403,,1.9,,False
+Sudan,2019,771,72,,,False
+Sudan,2020,733,,-4.9,,False
+Sudan,2021,732,,-0.1,,False
+Sudan,2022,756,,3.3,,False
+Sudan,2023,680,,-10.1,,False
+Togo,2019,826,118,,,False
+Togo,2020,863,119,4.5,1.3,True
+Togo,2021,951,117,10.1,-1.9,False
+Togo,2022,909,118,-4.3,1.2,False
+Togo,2023,997,116,9.7,-1.8,False
+Tunisia,2019,3529,,,,False
+Tunisia,2020,3553,104,0.7,,False
+Tunisia,2021,3875,104,9.1,0.4,True
+Tunisia,2022,3680,104,-5.0,-0.3,False
+Tunisia,2023,3979,104,8.1,0.3,True
+Uganda,2019,878,,,,False
+Uganda,2020,856,,-2.5,,False
+Uganda,2021,933,,8.9,,False
+Uganda,2022,1002,,7.4,,False
+Uganda,2023,1049,,4.7,,False
+West Bank and Gaza,2019,,96,,,False
+West Bank and Gaza,2020,,95,,-1.0,False
+West Bank and Gaza,2021,,93,,-2.1,False
+West Bank and Gaza,2022,,91,,-1.3,False
+West Bank and Gaza,2023,,91,,-0.0,False
+Zambia,2019,1259,,,,False
+Zambia,2020,948,,-24.7,,False
+Zambia,2021,1128,,19.0,,False
+Zambia,2022,1446,,28.2,,False
+Zambia,2023,1331,,-8.0,,False
+Zimbabwe,2019,1480,93,,,False
+Zimbabwe,2020,1395,94,-5.7,0.2,False
+Zimbabwe,2021,1527,93,9.4,-0.9,False
+Zimbabwe,2022,1644,93,7.7,0.4,True
+Zimbabwe,2023,1858,93,13.0,0.1,True
