@@ -1,0 +1,549 @@
+<!--
+    Michael Evan
+    UMass Dartmouth - CIS 568 Data Visualization
+    Graduate Computer Science Department
+    Spring 2026
+    Assignment 2 - Supply Chain Visualization
+    Utilizing D3.js
+
+  - Interactive multi-line chart with tooltip and legend
+  - Toggle lines on/off via legend clicks
+  - Processes CSV data with flexible parsing and error handling
+  - Displays a table of the processed data below the chart
+  - Allows downloading the processed data as new CSV file to local machine
+  
+  -->
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Supply Chain (with embedded CSV data)</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#024482}
+    .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box}
+    .card{width:100%;max-width:1100px;background:#fff;padding:14px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+    h2{margin:0 0 8px;font-size:25px;text-align:center;color:#053cbb}
+    a{display:block;text-align:center;margin-bottom:8px;color:#053cbb;font-size:13px}
+    svg{width:100%;height:auto;display:block;background:#fff}
+    .legend{display:flex;justify-content:center;gap:12px;margin:8px 0;flex-wrap:wrap}
+    .tooltip{position:absolute;pointer-events:none;background:rgba(3,86,48,0.85);color:#fff;padding:8px;border-radius:4px;font-size:13px;display:none}
+    .controls{display:flex;justify-content:center;gap:10px;margin-bottom:8px}
+    button{padding:6px 10px;font-size:13px;border-radius:8px;border:2px solid #0730d1;background:#fff;cursor:pointer}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+    th,td{border:1px solid #eee;padding:6px;text-align:right}
+    th:first-child,td:first-child{text-align:left}
+    thead th{background:#2b7cff;color:#fff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>Supply Chain</h2>
+      <a>| interactive: mouseover - toggle legend |</a>
+      <svg id="chart" viewBox="0 0 1000 800" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="lineChart"></div>
+      <!-- *************** Glowing blue separator (red moving band) **************** -->
+      <div class="glow-sep color-transition" role="separator" aria-hidden="true">
+        <div class="color-band" aria-hidden="true"></div>
+      </div>
+      <style>
+      /* container bar (blue theme base) */
+      .glow-sep.color-transition {
+        height: 7px;
+        margin: 30px 0;
+        border-radius: 8px;
+        background: linear-gradient(90deg, #cfefff 0%, #9fd8ff 50%, #cfefff 100%); /* base blue */
+        box-shadow: 0 10px 36px rgba(43,111,179,0.22), 0 0 40px rgba(43,111,179,0.14);
+        position: relative;
+        overflow: hidden;
+      }
+      /* moving red band that crosses left -> right */
+      .color-band {
+        position: absolute;
+        left: -60%;           /* start off-left */
+        top: -30%;
+        width: 220%;          /* wide so the band crosses entire bar */
+        height: 160%;
+        transform: rotate(0.5deg);
+        /* red gradient band (adjust colors here to change the red tone) */
+        background: linear-gradient(90deg,
+          rgba(255, 0, 0, 0) 0%,
+          rgba(255, 90, 90, 0.88) 42%,
+          rgba(255, 40, 40, 0.5) 55%,
+          rgba(255, 0, 0, 0) 100%);
+        filter: blur(8px);
+        mix-blend-mode: screen; /* blends red highlight over blue base */
+        pointer-events: none;
+        animation: colorMove 2s linear infinite;
+        will-change: transform;
+      }
+      /* shimmer/pulse of the whole bar (optional) */
+      @keyframes glowPulse {
+        0%   { box-shadow: 0 8px 28px rgba(43,111,179,0.18), 0 0 30px rgba(43,111,179,0.12); transform: translateY(0); }
+        50%  { box-shadow: 0 12px 40px rgba(43,111,179,0.26), 0 0 44px rgba(43,111,179,0.18); transform: translateY(-1px); }
+        100% { box-shadow: 0 8px 28px rgba(43,111,179,0.18), 0 0 30px rgba(43,111,179,0.12); transform: translateY(0); }
+      }
+      .glow-sep { animation: glowPulse 2s ease-in-out infinite; }
+      /* horizontal movement left -> right */
+      @keyframes colorMove {
+        0%   { transform: translateX(0) rotate(0.5deg); }
+        100% { transform: translateX(60%) rotate(0.5deg); }
+      }
+      /* optional tweaks:
+        - Faster movement: change animation duration on .color-band (e.g. 2s)
+        - Reverse direction: add animation-direction: reverse;
+        - Different color: replace the rgba(...) stops in .color-band background
+      */
+      </style>
+      <!-- *********************** end of Glow separator *****************************-->
+      <div class="controls"><button id="download">Download Processed CSV</button></div>
+      <div class="legend" id="legend"></div>
+      <div id="table"></div>
+    </div>
+  </div>
+  <div id="tt" class="tooltip"></div>
+
+  <!-- EMBEDDED CSV DATA -->
+  <script id="csv-data" type="text/plain">
+date,EstimatedCost,RawMaterial,Workmanship,StorageCost
+1/1/19,1094,211,386,40
+2/1/19,2850,523,199,49
+3/1/19,2168,580,236,39
+4/1/19,1370,368,559,34
+5/1/19,2429,550,291,33
+6/1/19,1644,143,395,31
+7/1/19,1641,640,497,30
+8/1/19,2340,673,472,29
+9/1/19,2327,90,31,32
+10/1/19,1486,398,528,33
+11/1/19,383,21,48,34
+12/1/19,451,416,441,38
+1/1/20,900,514,60,42
+2/1/20,1653,201,558,43
+3/1/20,1070,271,32,42
+4/1/20,443,452,149,43
+5/1/20,2473,344,223,50
+6/1/20,1453,478,17,50
+7/1/20,1659,599,276,55
+8/1/20,761,673,392,48
+9/1/20,930,469,43,40</script>
+
+  <script>
+  // ---------- Parsing utilities ----------
+  function detectDelimiter(line){
+    if(!line) return ',';
+    if(line.includes(',')) return ',';
+    if(line.includes('\t')) return '\t';
+    if(line.includes(';')) return ';';
+    if(line.includes('|')) return '|';
+    return ',';
+  }
+
+  function normKey(h){ return String(h||'').replace(/^\uFEFF/,'').trim().toLowerCase().replace(/[^a-z0-9]/g,''); }  // header normalization: trim, lowercase, remove non-alphanum, handle BOM
+  function formatNumber(v){ return (typeof v === 'number' && !isNaN(v)) ? v.toFixed(2) : ''; }  // number formatting, no localization
+  function money(v){ const s = formatNumber(v); return s ? '$' + s : ''; }  // money formatting, no localization
+
+  function parseDate(s){  // MM/DD/YYYY or M/D/YY handling only, no validation
+    if(!s) return null;                     // handle null/undefined/empty
+    const p = String(s).trim().split('/');  // simple split on slash, no validation
+    if(p.length<3) return null;       // simple MM/DD/YYYY or M/D/YY handling only, no validation
+    let m=parseInt(p[0],10), d=parseInt(p[1],10), y=parseInt(p[2],10);  // parse invalid
+    if(y<100) y += (y<50?2000:1900);  // simple 2-digit year handling
+    const dt = new Date(y,m-1,d);     // JS Date: month is 0-based
+    return isNaN(dt) ? null : dt;     // Note: this will be forgiving and parse some invalid dates
+  }
+  function fmtCSVDate(d){
+    if(!d) return '';
+    const mm = (d.getMonth()+1).toString().padStart(2,'0');
+    const dd = d.getDate().toString().padStart(2,'0');
+    const yy = d.getFullYear();
+    return `${mm}/${dd}/${yy}`;
+  }
+
+  // robust parser: strip leading blanks, detect delimiter, normalize headers
+  function parseSmartCSV(text){
+    text = (text||'').replace(/^\uFEFF/,'').replace(/^\s*(\r?\n)+/,'');
+    const first = (text.split(/\r?\n/).find(l=>l.trim()!=='')||'').trim();
+    const delim = detectDelimiter(first || ',');
+    const dsv = d3.dsvFormat(delim);
+    const parsed = dsv.parse(text);
+    const rawCols = (parsed.columns && parsed.columns.length) ? parsed.columns.slice() : (parsed.length ? Object.keys(parsed[0]) : []);
+    const normCols = rawCols.map(c => normKey(c));
+    parsed.forEach(row=>{
+      rawCols.forEach((orig,i)=>{
+        const nk = normCols[i]||normKey(orig||'');
+        if(row.hasOwnProperty(orig) && !row.hasOwnProperty(nk)) row[nk] = row[orig];
+        if(orig !== nk && row.hasOwnProperty(orig)) delete row[orig];
+      });
+    });
+    parsed.columns = normCols;
+    return parsed;
+  }
+
+  // Map normalized column names to expected keys for processing; returns null for missing keys
+  function mapHeaders(cols){
+    const find = candidates => { for(const c of candidates) if(cols.includes(normKey(c))) return normKey(c); return null; };
+    return {
+      date: find(['date']),
+      estimated: find(['estimatedcost']),
+      raw: find(['rawmaterial']),
+      workmanship: find(['workmanship']),
+      storage: find(['storagecost'])
+    };
+  }
+
+  // ColorBrewer2 Set1 colors for consistency
+  const COLORS = {
+    EstimatedCost:'#377eb8',
+    ActualCost:'#e41a1c', 
+    SoldPrice:'#984ea3', 
+    Margin:'#4daf4a'
+  };
+
+  let lastData = null;
+
+  // Main processing function: 
+  // parse, validate, transform, sort
+  // Then draw table and chart
+  function run(parsed){
+    if(!parsed || !parsed.length) return d3.select('#table').text('No rows parsed');
+    const cols = parsed.columns || Object.keys(parsed[0] || {});
+    const mapping = mapHeaders(cols);
+    if(!mapping.date || !mapping.estimated || !mapping.raw || !mapping.workmanship || !mapping.storage){
+      // if required headers are missing, 
+      // show error with detected columns to help debug
+      return d3.select('#table').text('CSV missing required headers. Detected: ' + cols.join(', '));
+    }
+
+    const data = parsed.map(r=>{
+      const D = parseDate(r[mapping.date]);
+      const est = Number(String(r[mapping.estimated]||'').replace(/[^0-9.\-]/g,'')); // NaN possible
+      const raw = Number(String(r[mapping.raw]||'').replace(/[^0-9.\-]/g,''));
+      const work = Number(String(r[mapping.workmanship]||'').replace(/[^0-9.\-]/g,''));
+      const stor = Number(String(r[mapping.storage]||'').replace(/[^0-9.\-]/g,''));
+      const actual = (isNaN(raw)?0:raw) + (isNaN(work)?0:work) + (isNaN(stor)?0:stor);
+      const sold = isNaN(est) ? NaN : est * 1.1;
+      return {
+        DateObj: D,
+        DateRaw: r[mapping.date],
+        EstimatedCost: isNaN(est)?NaN:est,
+        RawMaterial: isNaN(raw)?NaN:raw,
+        Workmanship: isNaN(work)?NaN:work,
+        StorageCost: isNaN(stor)?NaN:stor,
+        ActualCost: isNaN(actual)?NaN:actual,
+        SoldPrice: isNaN(sold)?NaN:sold,
+        Margin: isNaN(sold)?NaN:(sold - actual)
+      };
+    });
+
+    data.sort((a,b)=> (a.DateObj && b.DateObj) ? a.DateObj - b.DateObj : 0);
+    lastData = data;
+    drawTable(data);
+    drawChart(data);
+    document.getElementById('download').onclick = ()=> downloadCSV(data);
+  }
+
+  // Table (basic HTML table)
+  function drawTable(data){
+    const wrap = d3.select('#table').html('');
+    const table = wrap.append('table');
+    const hdr = ['Date',  // these are fixed headers, don't depend on CSV headers since transform data to known format
+                'Estimated Cost',
+                'Raw Material',
+                'Workmanship',
+                'Storage Cost',
+                'Actual Cost',
+                'Sold Price',
+                'Margin of Profit'];
+
+    // remove obviously-empty rows (trailing blank CSV rows etc.)
+    const seriesKeys = ['EstimatedCost','RawMaterial','Workmanship','StorageCost','ActualCost','SoldPrice','Margin'];
+    const cleaned = (data || []).filter(d => {
+      const hasDate = (d.DateObj instanceof Date && !isNaN(d.DateObj)) || (d.DateRaw && String(d.DateRaw).trim() !== '');
+      const hasNumeric = seriesKeys.some(k => typeof d[k] === 'number' && !isNaN(d[k]));
+      return hasDate || hasNumeric;
+    });
+
+    table.append('thead').append('tr')  
+      .selectAll('th').data(hdr).enter().append('th') // use fixed headers, not CSV headers, since data is transformed to known format
+      .text(d => d) 
+      .style('text-align', 'center'); // center only date column
+
+    const rows = table.append('tbody').selectAll('tr').data(cleaned).enter().append('tr'); // use transformed data with known keys
+    rows.selectAll('td').data(d => [  // use transformed data with known keys, not CSV keys, since data is transformed to known format
+      d.DateObj ? fmtCSVDate(d.DateObj) : d.DateRaw,  // show formatted date if valid, else raw value
+      // format numbers with 2 decimals, show empty if invalid
+      formatNumber(d.EstimatedCost),
+      formatNumber(d.RawMaterial),                   
+      formatNumber(d.Workmanship),      
+      formatNumber(d.StorageCost),
+      formatNumber(d.ActualCost),
+      formatNumber(d.SoldPrice),
+      formatNumber(d.Margin)
+    ]).enter().append('td')
+      .text(x => x)
+      .style('text-align', (_, i) => i === 0 ? 'center' : null); // center only date column
+  }
+
+  // CSV Download (processed data with formatting)
+  function downloadCSV(data){
+    if(!data || !data.length) return alert('No data to download');  // basic check to prevent downloading empty file
+
+    // same cleaning logic as table to avoid exporting trailing empty rows
+    const seriesKeys = ['EstimatedCost','RawMaterial','Workmanship','StorageCost','ActualCost','SoldPrice','Margin'];
+    const cleaned = (data || []).filter(d => {
+      const hasDate = (d.DateObj instanceof Date && !isNaN(d.DateObj)) || (d.DateRaw && String(d.DateRaw).trim() !== '');
+      const hasNumeric = seriesKeys.some(k => typeof d[k] === 'number' && !isNaN(d[k]));
+      return hasDate || hasNumeric;
+    });
+
+    const out = cleaned.map(d=>({  // map to new objects with formatted values for CSV output
+      Date: d.DateObj ? fmtCSVDate(d.DateObj) : d.DateRaw,  // show formatted date if valid, else raw value
+      EstimatedCost: formatNumber(d.EstimatedCost),         // format numbers with 2 decimals, show empty if invalid
+      RawMaterial: formatNumber(d.RawMaterial),
+      Workmanship: formatNumber(d.Workmanship),
+      StorageCost: formatNumber(d.StorageCost),
+      ActualCost: formatNumber(d.ActualCost),
+      SoldPrice: formatNumber(d.SoldPrice),
+      MarginOfProfit: formatNumber(d.Margin)
+    }));
+
+    const csv = d3.csvFormat(out);  // convert array of objects to CSV string with header row based on object keys
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); // create a Blob from the CSV string for downloading
+    const url = URL.createObjectURL(blob);    // create a temporary URL for the Blob to trigger download
+    const a = document.createElement('a');    // create a temporary anchor element to trigger the download
+      a.href = url; a.download = 'data_sample_processed.csv';   // set the download attribute with a default filename for the downloaded CSV file
+      document.body.appendChild(a);                             // append the anchor to the body to make it part of the DOM, required for Firefox
+      a.click(); a.remove(); URL.revokeObjectURL(url); // trigger the download by simulating a click on the anchor, then clean up by removing the anchor and revoking the temporary URL
+  }
+
+  // Chart (4 lines + interactive on/off boxed legend) 
+  function drawChart(data){
+    const svg = d3.select('#chart');
+    svg.selectAll('*').remove();
+
+    // margins and inner dimensions
+    const VIEW_W = 1000, VIEW_H = 800;
+    const M = {left:70, right:14, top:24, bottom:80};
+    const IW = VIEW_W - M.left - M.right;
+    const IH = VIEW_H - M.top - M.bottom;
+    const g = svg.append('g').attr('transform',`translate(${M.left},${M.top})`);
+
+    // define series with keys matching data properties and labels for legend
+    const series = [
+      {key:'EstimatedCost', label:'Estimated Cost'},
+      {key:'ActualCost',    label:'Actual Cost'},
+      {key:'SoldPrice',     label:'Sold Price'},
+      {key:'Margin',        label:'Margin of Profit'}
+    ];
+
+    // determine if x-axis is date or index based on data, then create appropriate scale
+    // coerce/validate string/raw dates into Date objects
+    data.forEach(d => {
+      if (!d.DateObj && d.DateRaw) d.DateObj = new Date(d.DateRaw);
+      else if (typeof d.DateObj === 'string') d.DateObj = new Date(d.DateObj);
+      if (!(d.DateObj instanceof Date) || isNaN(d.DateObj)) d.DateObj = null;
+    });
+
+    const validDates = data.filter(d => d.DateObj instanceof Date && !isNaN(d.DateObj));
+    // require at least one valid date to use a time scale; handle single-date case by expanding domain
+    const hasDates = validDates.length >= 1;
+
+    // if dates are valid, sort by date for proper line drawing and bisector behavior
+    let plotData = data;
+    if(hasDates) plotData = data.slice().sort((a,b) => a.DateObj - b.DateObj);
+
+    // prepare x domain (ensure non-zero domain even with single date) and create monthly tick values (every month between min and max)
+    let x, xDomainMin, xDomainMax, monthTicks = null;
+    if(hasDates){
+      const minD = d3.min(validDates, d => d.DateObj);
+      const maxD = d3.max(validDates, d => d.DateObj);
+      // floor the min to month start, and ensure max extends at least to next month if only one month present
+      xDomainMin = d3.timeMonth.floor(minD);
+      xDomainMax = (d3.timeMonth.floor(maxD).getTime() === d3.timeMonth.floor(minD).getTime())
+        ? d3.timeMonth.offset(d3.timeMonth.floor(maxD), 1)  // single-month data: extend domain by one month
+        : d3.timeMonth.ceil(maxD);
+      x = d3.scaleTime().range([0, IW]).domain([xDomainMin, xDomainMax]);
+
+      // generate a tick value at the start of every month between xDomainMin (inclusive) and xDomainMax (exclusive end),
+      // and include the final month start if needed by offsetting end by 1 month
+      monthTicks = d3.timeMonth.range(xDomainMin, d3.timeMonth.offset(xDomainMax, 0));
+      // if xDomainMax is exactly a month start and we want to include it as a tick, ensure it's present
+      if (monthTicks.length === 0 || (+monthTicks[monthTicks.length-1] !== +d3.timeMonth.floor(xDomainMax))) {
+        monthTicks.push(d3.timeMonth.floor(xDomainMax));
+      }
+    } else {
+      x = d3.scaleLinear().range([0,IW]).domain([0, Math.max(1, data.length-1)]);  // if dates are valid, use time scale; else fallback to linear index scale
+    }
+
+    const yMin = d3.min(data, d => d3.min(series, s => (typeof d[s.key] === 'number' ? d[s.key] : NaN))); // find min across all series, ignore non-numeric
+    const yMax = d3.max(data, d => d3.max(series, s => (typeof d[s.key] === 'number' ? d[s.key] : NaN))); // find max across all series, ignore non-numeric
+    const y = d3.scaleLinear().range([IH,0]).domain([Math.min(0, yMin*0.95 || 0), (yMax*1.05) || 1]).nice();  // y-axis domain with some padding, ensure it includes 0
+
+    const fmtAxis = hasDates ? d3.timeFormat('%b %Y') : (d=>d);
+
+    // use explicit tick values for months when dates are present to force every month tick
+    if(hasDates){
+      g.append('g')
+        .attr('transform',`translate(0,${IH})`)
+        .call(d3.axisBottom(x).tickValues(monthTicks).tickFormat(fmtAxis))
+        .selectAll('text').attr('transform','rotate(-35)').style('text-anchor','end');
+    } else {
+      g.append('g')
+        .attr('transform',`translate(0,${IH})`)
+        .call(d3.axisBottom(x).ticks(Math.min(12,data.length)))
+        .selectAll('text').attr('transform','rotate(-35)').style('text-anchor','end');
+    }
+
+    g.append('g').call(d3.axisLeft(y).ticks(6));
+
+    g.append('g').selectAll('line').data(y.ticks(6)).enter().append('line')
+      .attr('x1',0).attr('x2',IW).attr('y1',d=>y(d)).attr('y2',d=>y(d)).attr('stroke','#eee');  // horizontal grid lines for better readability
+
+    const lineGen = key => d3.line()
+      .defined(d => typeof d[key] === 'number' && !isNaN(d[key]) && (!hasDates || (d.DateObj instanceof Date && !isNaN(d.DateObj))))
+      .x((d,i) => hasDates ? x(d.DateObj) : x(i))
+      .y(d => y(d[key])); // line generator that handles missing/invalid data points by skipping them
+
+    // draw lines for each series with animation
+    series.forEach((s, idx) => {
+      const p = g.append('path')
+        .datum(plotData)
+        .attr('fill','none')
+        .attr('stroke', COLORS[s.key] || '#000')
+        .attr('stroke-width', s.key === 'Margin' ? 2 : 2.5)
+        .attr('data-key', s.key)
+        .attr('d', lineGen(s.key))
+        .attr('opacity',0.95);  // set initial opacity for lines; adjust as needed for aesthetics
+
+      try{  // animate line drawing using stroke-dasharray and stroke-dashoffset; if Margin series, set dash pattern after animation completes
+        const len = p.node().getTotalLength();
+        p.attr('stroke-dasharray', len + ' ' + len).attr('stroke-dashoffset', len)
+          .transition().duration(4000 + idx*250).ease(d3.easeCubicOut).attr('stroke-dashoffset', 0)
+          .on('end', () => { if(s.key === 'Margin') p.attr('stroke-dasharray', '6,4'); });
+      }catch(e){}
+    });
+
+    // vertical line (behind overlay)
+    const vline = g.append('line').attr('stroke','#666').attr('stroke-dasharray','4,4').attr('y1',0).attr('y2',IH).attr('opacity',0);
+
+    // overlay to capture mouse events (append BEFORE legend so legend is on top)
+    const overlay = g.append('rect').attr('width', IW).attr('height', IH).attr('fill','none').attr('pointer-events','all');
+
+    // boxed legend appended after overlay so it sits on top to receive user on/off clicks
+    const legendWidth = 120;  // fixed width for legend box; could be dynamic based on text size but fixed is simpler for this example
+    const itemH = 22;         // height for each legend item; adjust as needed for font size and spacing
+    const pad = 8;            // padding around legend items inside the box; adjust as needed for aesthetics
+    const lx = IW - legendWidth - 8;  // x position for legend box (8px from right edge); adjust as needed for spacing from edge
+    const ly = 8;                     // y position for legend box (8px from top edge); adjust as needed for spacing from edge
+    // create legend group with background rectangle for better visibility; position it in the top-right corner of the chart area
+    const legendG = g.append('g').attr('class','svg-legend').attr('transform', `translate(${lx},${ly})`);
+    legendG.append('rect')  
+      .attr('x', -pad).attr('y', -pad)  // background rectangle for legend; position it behind the legend items with some padding
+      .attr('width', legendWidth + pad*2) // fixed width plus padding on both sides; adjust as needed for dynamic width based on text size
+      .attr('height', series.length * itemH + pad*2)  // height based on number of items plus padding on top and bottom; adjust itemH as needed
+      .attr('fill', 'rgba(255,255,255,0.95)') // semi-transparent white background for better readability of legend text
+      .attr('stroke', '#ccc')   // light border for legend box
+      .attr('stroke-width', 1)  // thin border for legend box
+      .attr('rx', 6);           // rounded corners for legend box
+
+    // create legend items with interactivity to toggle lines on/off
+    const items = legendG.selectAll('g.legend-item')
+      .data(series)
+      .enter().append('g')
+      .attr('class','legend-item')
+      .attr('transform',(d,i)=>`translate(0, ${i*itemH})`)
+      .style('cursor','pointer')
+      .on('click', function(event, s){
+        event.stopPropagation(); // ensure overlay doesn't intercept the click
+        const path = g.selectAll(`path[data-key='${s.key}']`);
+        const hidden = path.attr('display') === 'none';
+        path.attr('display', hidden ? null : 'none');
+        d3.select(this).select('rect.swatch').attr('opacity', hidden ? 1 : 0.25);
+      });
+    // create swatches and labels for legend items; use defined colors; to black if key is missing in COLORS
+    items.append('rect').attr('class','swatch')
+      .attr('x', 6).attr('y', 6).attr('width', 14).attr('height', 10)
+      .attr('fill', d => COLORS[d.key])
+      .attr('stroke', '#333')
+      .attr('stroke-width', 0.8)
+      .attr('rx', 2);
+    // labels for legend items; positioned to the right of swatches
+    items.append('text')
+      .attr('x', 28).attr('y', 15)
+      .text(d => d.label)
+      .style('font-size','12px')
+      .style('fill','#111');
+
+    // tooltip handling on overlay
+    const bis = d3.bisector(d => d.DateObj).left;
+    const tt = d3.select('#tt');
+    
+    // mousemove on overlay to show tooltip with nearest data point info
+    // move vertical line to match x position
+    // handle both date and index x-axis types
+    overlay.on('mousemove', (ev) => {
+      const [mx,my] = d3.pointer(ev);
+      let i;
+      if(hasDates){
+        const xVal = x.invert(mx);
+        i = bis(plotData, xVal);
+        if(i>0 && (i>=plotData.length || (plotData[i].DateObj - xVal) > (xVal - plotData[i-1].DateObj))) i = i-1;
+      } else {
+        // use x.invert to get fractional index for linear x scale, then round
+        const idx = Math.round(x.invert(mx));
+        i = Math.max(0, Math.min(data.length-1, idx));
+      }
+      // ensure index is within bounds and data point exists
+      const row = (hasDates ? plotData[i] : data[i]);
+      if(!row) return;
+      const cx = hasDates ? x(row.DateObj) : x(i);
+      vline.attr('x1',cx).attr('x2',cx).attr('opacity',1);
+      
+      // build tooltip content with formatted values
+      // handle missing/invalid data
+      const lines = [
+        `<strong>${ row.DateObj ? fmtCSVDate(row.DateObj) : row.DateRaw }</strong>`,
+        `Estimated Cost: ${money(row.EstimatedCost)}`,
+        `Actual Cost: ${money(row.ActualCost)}`,
+        `Sold Price: ${money(row.SoldPrice)}`,
+        `Margin of Profit: ${money(row.Margin)}`
+      ];
+      tt.style('display','block').style('left', (ev.pageX + 12) + 'px').style('top', (ev.pageY + 8) + 'px').html(lines.join('<br>'));
+    }).on('mouseout', ()=> { vline.attr('opacity',0); tt.style('display','none'); });
+
+    // title and axis labels
+    svg.append('text')
+      .attr('x', - (M.top + IH/2))  // position y-axis label in the middle of the y-axis, accounting for top margin
+      .attr('y', 18)  // position y-axis label to the left of the y-axis, accounting for left margin and some padding
+      .attr('transform','rotate(-90)')  // rotate y-axis label to be vertical
+      .attr('text-anchor','middle')     // center the text on its anchor point for proper alignment after rotation
+      .style('font-size','20px')        // style y-axis label with font size and color; adjust color as needed for visibility against background
+      .style('fill','#377eb8')
+      .text('USD ($)');
+
+    svg.append('text')
+      .attr('x', VIEW_W/2)
+      .attr('y', VIEW_H-10)
+      .attr('text-anchor','middle')
+      .style('font-size','20px')
+      .style('fill','#377eb8')
+      .text('Date');
+  }
+
+  // ************ Startup: uses embedded CSV only ************** //
+  document.addEventListener('DOMContentLoaded', function(){
+    const embedded = document.getElementById('csv-data'); // look for embedded CSV data in the page
+    if(embedded && embedded.textContent && embedded.textContent.trim()){  
+      const parsed = parseSmartCSV(embedded.textContent); // parse the embedded CSV data with robust parsing
+      run(parsed);  // if embedded CSV data is found and parsed, run the main processing function; else show error message below chart
+      return;
+    }
+      d3.select('#table').text('No embedded CSV data found'); // show error if no embedded CSV data is found
+  });
+
+  </script>
+</body>
+</html>
