@@ -1,0 +1,3269 @@
+<!--
+
+  Michael Evan · CSS 568 Final Project
+  NTSB Aviation Accident Visualization
+  University of Massachusetts Dartmouth, Spring 2026
+  
+  Description:
+    Interactive map + analytics dashboard for 154k+ US aviation accidents (1962-2025)
+    Data source: NTSB Aviation Accident Database (public domain)
+
+  Libraries used:
+    - Leaflet + MarkerCluster + Heat: interactive map with cluster/heatmap/dots modes
+    - D3.js: charts (line, bar, choropleth, donut, sparklines)
+    - TopoJSON: US state boundary data for choropleth
+    - PapaParse: CSV parsing
+    - noUiSlider: year range slider
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NTSB Aviation Accidents · US 1962 - 2025</title>
+<!-- Leaflet - map rendering -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<!-- MarkerCluster - groups nearby markers into clusters -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+
+<!-- Leaflet Heat - heatmap layer plugin -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+
+<!-- D3 - data visualization library for charts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
+<!-- TopoJSON - converts state boundary geometry for the choropleth -->
+<script src="topojson-client.min.js"></script>
+
+<!-- PapaParse - CSV parser for loading the accident dataset -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<!-- noUiSlider - year range slider -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Inter:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:        #050810;
+    --panel:     #0a0e1a;
+    --panel2:    #0d1220;
+    --border:    #1a2340;
+    --accent:    #00d4ff;
+    --accent2:   #ff6b35;
+    --fatal:     #ff2d55;
+    --serious:   #ff9f0a;
+    --minor:     #ffd60a;
+    --none:      #30d158;
+    --unknown:   #a0a0b0;
+    --text:      #e0e8ff;
+    --text-dim:  #6e7a99;
+    --glow:      0 0 20px rgba(0,212,255,0.3);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* -- SIDEBAR -- */
+  #sidebar {
+    width: 340px;
+    min-width: 340px;
+    height: 100vh;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 1000;
+    position: relative;
+  }
+
+  #sidebar-header {
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #0a1428 0%, var(--panel) 100%);
+    flex-shrink: 0;
+  }
+
+  #sidebar-header h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    text-transform: uppercase;
+    text-shadow: var(--glow);
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  #sidebar-header .subtitle {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: #c0ccee;
+    margin-top: 4px;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+
+  /* -- STATS BAR -- */
+  #stats-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .stat-cell {
+    background: var(--panel2);
+    padding: 10px 14px;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-family: 'Orbitron', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .stat-value.fatal { color: var(--fatal); }
+  .stat-value.serious { color: var(--serious); }
+
+  .sparkline {
+    display: block;
+    margin: 4px auto 2px;
+    opacity: 0.7;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #8899bb;
+    margin-top: 1px;
+  }
+
+  /* -- INJURY LEGEND -- */
+  #injury-legend {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 7px;
+    border-radius: 5px;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .legend-item.active { border-color: currentColor; background: rgba(255,255,255,0.06); }
+
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* -- SCROLL AREA -- */
+  #sidebar-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  #sidebar-scroll::-webkit-scrollbar { width: 6px; }
+  #sidebar-scroll::-webkit-scrollbar-track { background: var(--panel2); }
+  #sidebar-scroll::-webkit-scrollbar-thumb { 
+    background: var(--accent); 
+    border-radius: 3px;
+    opacity: 0.7;
+  }
+  #sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #fff; }
+
+  /* -- FILTER SECTIONS -- */
+  .filter-section {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .filter-header {
+    padding: 9px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .filter-header .toggle-icon { font-size: 14px; color: var(--accent); }
+
+  .filter-body { padding: 12px; }
+
+  /* -- YEAR SLIDER -- */
+  #year-display {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 14px;
+    color: var(--text);
+    text-align: center;
+    margin-bottom: 12px;
+  }
+
+  /* hide number input spinner arrows so text stays centered */
+  #year-start::-webkit-inner-spin-button,
+  #year-start::-webkit-outer-spin-button,
+  #year-end::-webkit-inner-spin-button,
+  #year-end::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  #year-start, #year-end { -moz-appearance: textfield; }
+
+  #year-slider {
+    margin: 0 8px;
+  }
+
+  .noUi-target {
+    background: #0d1220;
+    border: 1px solid var(--border);
+    box-shadow: none;
+    height: 4px;
+  }
+
+  .noUi-connect { background: var(--accent); }
+
+  .noUi-handle {
+    background: var(--accent);
+    border: none;
+    box-shadow: 0 0 8px rgba(0,212,255,0.6);
+    width: 14px !important;
+    height: 14px !important;
+    top: -6px !important;
+    right: -7px !important;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  .noUi-handle::before, .noUi-handle::after { display: none; }
+
+  /* -- CHIP GRID -- */
+  .chip-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+  }
+
+  .chip-grid .chip {
+    text-align: center;
+    width: 100%;
+  }
+
+  /* -- CHIP FILTERS -- */
+  .chip-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .chip {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 2px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-family: 'Share Tech Mono', monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .chip.active { background: rgba(0,212,255,0.1); border-color: var(--accent); color: var(--accent); }
+  .chip.fatal-chip.active { background: rgba(255,45,85,0.15); border-color: var(--fatal); color: var(--fatal); }
+  .chip.serious-chip.active { background: rgba(255,159,10,0.15); border-color: var(--serious); color: var(--serious); }
+  .chip.minor-chip.active { background: rgba(255,214,10,0.12); border-color: var(--minor); color: var(--minor); }
+  .chip.none-chip.active { background: rgba(48,209,88,0.12); border-color: var(--none); color: var(--none); }
+
+  /* -- MAP CONTROLS -- */
+  #map-controls {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .map-btn {
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 2px solid #2a3a5a;
+    background: transparent;
+    color: #6e8aaa;
+    font-size: 11px;
+    font-family: 'Share Tech Mono', monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .map-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .map-btn.active { background: rgba(0,212,255,0.18); border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,0.3); font-weight: bold; }
+  #btn-timeline.active { background: rgba(191,95,255,0.15); border-color: #bf5fff; color: #bf5fff; box-shadow: 0 0 12px rgba(191,95,255,0.3); font-weight: bold; }
+
+  /* -- CHARTS -- */
+  .chart-container {
+    width: 100%;
+  }
+
+  .chart-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: #c0ccee;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  svg text { font-family: 'Share Tech Mono', monospace; }
+
+  /* --APPLY/RESET --*/
+  #filter-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .action-btn {
+    flex: 1;
+    padding: 9px;
+    border-radius: 5px;
+    border: 2px solid var(--border);
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  #reset-btn {
+    background: rgba(0,212,255,0.05);
+    color: #8899bb;
+    border-color: rgba(0,212,255,0.4);
+  }
+
+  #map-reset-btn {
+    background: rgba(0,212,255,0.05);
+    color: #8899bb;
+    border-color: rgba(0,212,255,0.4);
+  }
+
+  #reset-btn:hover, #map-reset-btn:hover, .action-btn:hover { border-color: var(--accent) !important; color: var(--accent) !important; background: rgba(0,212,255,0.1) !important; }
+
+  /* -- MAP -- */
+  #map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #map { width: 100%; height: 100%; }
+
+  /* -- LOADING -- */
+  #loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.5s;
+  }
+
+  #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .loader-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    font-weight: 900;
+    color: var(--accent);
+    letter-spacing: 3px;
+    text-shadow: var(--glow);
+    margin-bottom: 8px;
+  }
+
+  .loader-sub {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    letter-spacing: 3px;
+    margin-bottom: 40px;
+  }
+
+  .loader-bar-track {
+    width: 320px;
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  .loader-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #0af);
+    border-radius: 1px;
+    transition: width 0.3s;
+    box-shadow: 0 0 10px rgba(0,212,255,0.8);
+    width: 0%;
+  }
+
+  #loading-status {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  /* -- POPUP -- */
+  .leaflet-popup-content-wrapper {
+    background: #0a0e1a !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.8) !important;
+    padding: 0 !important;
+    min-width: 300px;
+    max-width: 360px !important;
+    max-height: 80vh !important;
+    overflow-y: auto !important;
+  }
+
+  .leaflet-popup-tip { background: #0a0e1a !important; }
+  .leaflet-popup-close-button { color: var(--text-dim) !important; top: 8px !important; right: 8px !important; }
+
+  .popup-inner { padding: 16px; }
+
+  .popup-ntsb {
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .popup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0;
+    border-bottom: 1px solid #0d1220;
+    font-size: 13px;
+  }
+
+  .popup-row:last-child { border-bottom: none; }
+
+  .popup-key {
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    margin-right: 10px;
+  }
+
+  .popup-val { color: var(--text); text-align: right; font-size: 13px; }
+
+  .popup-cause {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: #8899bb;
+    line-height: 1.5;
+  }
+
+  .injury-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 12px;
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+
+  /* map to info */
+  #map-info {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 500;
+    background: rgba(5,8,16,0.9);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 16px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: #c0ccee;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+
+  #map-info span { color: var(--accent); font-weight: bold; }
+
+  /* timeline bar */
+  #timeline-bar {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 500;
+    background: rgba(5,8,16,0.92);
+    border: 2px solid #bf5fff;
+    box-shadow: 0 0 16px rgba(191,95,255,0.2);
+    border-radius: 6px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    backdrop-filter: blur(8px);
+    display: none;
+  }
+
+  #timeline-bar.visible { display: flex; }
+
+  #anim-play-btn {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: rgba(0,212,255,0.1);
+    border: 2px solid #bf5fff;
+    color: var(--accent);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  #anim-play-btn:hover { background: rgba(191,95,255,0.2); }
+
+  #anim-year-display {
+    font-family: 'Orbitron', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: #bf5fff;
+    min-width: 52px;
+    text-align: center;
+  }
+
+  #anim-progress {
+    width: 200px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  #anim-progress-fill {
+    height: 100%;
+    background: #bf5fff;
+    width: 0%;
+    transition: width 0.4s;
+    box-shadow: 0 0 8px rgba(191,95,255,0.6);
+  }
+
+  #anim-close {
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  #anim-close:hover { color: var(--text); }
+
+  /* Leaflet zoom control */
+  .leaflet-control-zoom a {
+    background: rgba(5,8,16,0.9) !important;
+    color: var(--accent) !important;
+    border: 1px solid rgba(0,212,255,0.4) !important;
+    font-size: 16px !important;
+    line-height: 26px !important;
+    width: 28px !important;
+    height: 28px !important;
+  }
+
+  .leaflet-control-zoom a:hover {
+    background: rgba(0,212,255,0.15) !important;
+    color: var(--accent) !important;
+    border-color: var(--accent) !important;
+  }
+
+  .leaflet-bar {
+    border: none !important;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5) !important;
+  }
+
+  /* Leaflet tile attribution tweak */
+  .leaflet-control-attribution {
+    background: rgba(5,8,16,0.7) !important;
+    color: var(--text-dim) !important;
+    font-size: 9px !important;
+  }
+
+  .leaflet-control-attribution a { color: var(--accent) !important; }
+
+  /* Cluster override */
+  .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+    background-clip: padding-box;
+    border-radius: 20px;
+  }
+
+  .marker-cluster-small { background-color: rgba(0, 180, 100, 0.5); }
+  .marker-cluster-small div { background-color: rgba(0, 200, 120, 0.7); }
+  .marker-cluster-medium { background-color: rgba(255, 159, 10, 0.5); }
+  .marker-cluster-medium div { background-color: rgba(255, 159, 10, 0.7); }
+  .marker-cluster-large { background-color: rgba(255, 45, 85, 0.5); }
+  .marker-cluster-large div { background-color: rgba(255, 45, 85, 0.7); }
+
+  .marker-cluster div {
+    color: #fff;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
+  /* help drawer */
+  #help-drawer {
+    position: fixed;
+    top: 0;
+    left: 340px;
+    width: 420px;
+    height: 100vh;
+    background: rgba(10,14,26,0.85);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--accent);
+    z-index: 900;
+    transform: translateX(-100%);
+    transition: transform 2.0s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+  }
+
+  #help-drawer.open {
+    transform: translateX(0);
+  }
+
+  #help-drawer-inner {
+    padding: 20px 18px;
+    height: 100%;
+    overflow-y: auto;
+  }
+
+  #help-drawer-inner::-webkit-scrollbar { width: 4px; }
+  #help-drawer-inner::-webkit-scrollbar-track { background: var(--panel2); }
+  #help-drawer-inner::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }
+
+  .help-section {
+    margin-bottom: 20px;
+  }
+
+  .help-heading {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .help-item {
+    font-size: 14px;
+    color: #8899bb;
+    line-height: 1.7;
+    margin-bottom: 7px;
+    padding-left: 10px;
+    border-left: 2px solid var(--border);
+  }
+
+  .help-hl {
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  /* analytics drawer */
+  #analytics-drawer {
+    position: fixed;
+    top: 0;
+    left: 340px;
+    width: 560px;
+    height: 100vh;
+    background: rgba(10,14,26,0.85);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--accent);
+    z-index: 900;
+    transform: translateX(-100%);
+    transition: transform 2.0s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+  }
+
+  #analytics-drawer.open {
+    transform: translateX(0);
+  }
+
+  #analytics-drawer-inner {
+    padding: 20px 24px;
+    height: 100%;
+    overflow-y: auto;
+  }
+
+  #analytics-drawer-inner::-webkit-scrollbar { width: 4px; }
+  #analytics-drawer-inner::-webkit-scrollbar-track { background: var(--panel2); }
+  #analytics-drawer-inner::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }
+
+  /* -- DOCS DRAWER -- */
+  #docs-drawer {
+    position: fixed;
+    top: 0;
+    left: 340px;
+    width: 680px;
+    height: 100vh;
+    background: rgba(10,14,26,0.85);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--accent);
+    z-index: 900;
+    transform: translateX(-100%);
+    transition: transform 2.0s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+  }
+
+  #docs-drawer.open {
+    transform: translateX(0);
+  }
+
+  #docs-drawer-inner {
+    padding: 24px 28px;
+    height: 100%;
+    overflow-y: auto;
+  }
+
+  #docs-drawer-inner::-webkit-scrollbar { width: 4px; }
+  #docs-drawer-inner::-webkit-scrollbar-track { background: var(--panel2); }
+  #docs-drawer-inner::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }
+
+  #docs-drawer-inner h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+
+  #docs-drawer-inner h2 {
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1.5px;
+    margin-top: 24px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  #docs-drawer-inner h3 {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    color: #00d4ff;
+    letter-spacing: 1px;
+    margin-top: 18px;
+    margin-bottom: 8px;
+  }
+
+  #docs-drawer-inner p {
+    font-size: 13px;
+    color: #a8b8d8;
+    line-height: 1.7;
+    margin-bottom: 12px;
+  }
+
+  #docs-drawer-inner ul {
+    margin-bottom: 12px;
+    padding-left: 16px;
+  }
+
+  #docs-drawer-inner li {
+    font-size: 13px;
+    color: #a8b8d8;
+    line-height: 1.7;
+    margin-bottom: 4px;
+  }
+
+  #docs-drawer-inner strong {
+    color: #e0e8ff;
+    font-weight: 400;
+  }
+
+  #docs-drawer-inner .doc-subtitle {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: #6e7a99;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+
+  #docs-drawer-inner hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 16px 0;
+  }
+
+  /* choropleth tooltip */
+  #choro-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: rgba(10,14,26,0.92);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    z-index: 2000;
+    opacity: 0;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  #choro-tooltip.visible { opacity: 1; }
+  #choro-tooltip .tt-state { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 1px; }
+  #choro-tooltip .tt-count { color: #e0e8ff; margin-top: 2px; }
+  #choro-tooltip .tt-pct { color: #8899bb; font-size: 12px; margin-top: 2px; }
+
+  /* responsive */
+  body { overflow-x: hidden; }
+
+  @media (max-width: 1440px) {
+    #sidebar { width: 300px; min-width: 300px; }
+    #help-drawer { left: 300px; width: 380px; }
+    #analytics-drawer { left: 300px; width: calc(100vw - 300px); max-width: 560px; }
+    #docs-drawer { left: 300px; width: calc(100vw - 300px); max-width: 680px; }
+  }
+
+  @media (max-width: 1024px) {
+    #sidebar { width: 280px; min-width: 280px; }
+    #help-drawer { left: 280px; width: calc(100vw - 280px); max-width: 420px; }
+    #analytics-drawer { left: 280px; width: calc(100vw - 280px); }
+    #docs-drawer { left: 280px; width: calc(100vw - 280px); }
+  }
+
+  @media (max-width: 768px) {
+    #sidebar { width: 260px; min-width: 260px; }
+    #help-drawer { left: 0; width: 100vw; z-index: 1100; }
+    #analytics-drawer { left: 0; width: 100vw; z-index: 1100; }
+    #docs-drawer { left: 0; width: 100vw; z-index: 1100; }
+  }
+</style>
+</head>
+<body>
+
+<!-- loading overlay -covers everything until CSV is parsed and markers built -->
+<div id="loading-overlay">
+  <div class="loader-title">NTSB AVIATION ACCIDENTS</div>
+  <div class="loader-sub">US AVIATION 1962 – 2025</div>
+  <div class="loader-bar-track">
+    <div class="loader-bar-fill" id="loader-fill"></div>
+  </div>
+  <div id="loading-status">INITIALIZING...</div>
+  <div style="margin-top:30px;font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;color:#6e7a99;letter-spacing:1.25px;">Software Engineer: Michael J Evan</div>
+</div>
+
+<!-- sidebar -filter controls, stats, sparklines, and small charts -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>NTSB Aviation Accidents</h1>
+    <div class="subtitle">US DATA · 1962–2025 · <span id="header-count">—</span> EVENTS</div>
+  </div>
+
+  <!-- stats -->
+  <div id="stats-bar">
+    <div class="stat-cell">
+      <div class="stat-value" id="stat-total">—</div>
+      <svg class="sparkline" id="spark-total" width="80" height="20"></svg>
+      <div class="stat-label">Showing</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-value fatal" id="stat-fatal">—</div>
+      <svg class="sparkline" id="spark-fatal" width="80" height="20"></svg>
+      <div class="stat-label">Fatal</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-value serious" id="stat-serious">—</div>
+      <svg class="sparkline" id="spark-serious" width="80" height="20"></svg>
+      <div class="stat-label">Serious Inj.</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-value" id="stat-deaths" style="color:var(--fatal)">—</div>
+      <svg class="sparkline" id="spark-deaths" width="80" height="20"></svg>
+      <div class="stat-label">Fatalities</div>
+    </div>
+  </div>
+
+  <!-- injury legend -->
+  <div id="injury-legend" style="display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <div class="legend-item active" data-injury="Fatal" style="color:var(--fatal);justify-content:space-between;">
+      Fatal<div class="legend-dot" style="background:var(--fatal)"></div>
+    </div>
+    <div class="legend-item active" data-injury="Serious" style="color:var(--serious);justify-content:space-between;">
+      Serious<div class="legend-dot" style="background:var(--serious)"></div>
+    </div>
+    <div class="legend-item active" data-injury="Minor" style="color:var(--minor);justify-content:space-between;">
+      Minor<div class="legend-dot" style="background:var(--minor)"></div>
+    </div>
+    <div class="legend-item active" data-injury="None" style="color:var(--none);justify-content:space-between;">
+      None<div class="legend-dot" style="background:var(--none)"></div>
+    </div>
+    <div class="legend-item active" data-injury="Unknown" style="color:var(--unknown);justify-content:space-between;grid-column:1 / -1;">
+      Unknown<div class="legend-dot" style="background:var(--unknown)"></div>
+    </div>
+  </div>
+
+  <!-- year range -pinned above scroll -->
+  <div style="padding:12px 14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--panel);">
+    <div style="background:var(--panel2);border:1px solid #2a3a5a;border-radius:6px;padding:10px 12px;">
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;">
+        <input type="number" id="year-start" min="1962" max="2025" value="1962" style="width:60px;background:var(--bg);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:4px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:13px;text-align:center;">
+        <span style="color:var(--text-dim);font-family:'Share Tech Mono',monospace;">—</span>
+        <input type="number" id="year-end" min="1962" max="2025" value="2025" style="width:60px;background:var(--bg);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:4px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:13px;text-align:center;">
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([1962,2025]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:3px 8px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer;">ALL</button>
+      </div>
+      <div style="display:flex;justify-content:center;gap:4px;margin-bottom:8px;">
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([1960,1969]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">60s</button>
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([1970,1979]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">70s</button>
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([1980,1989]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">80s</button>
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([1990,1999]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">90s</button>
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([2000,2009]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">00s</button>
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([2010,2019]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">10s</button>
+        <button onclick="document.getElementById('year-slider').noUiSlider.set([2020,2025]);applyFilters();" style="background:none;border:1px solid rgba(0,212,255,0.4);border-radius:3px;padding:2px 6px;color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:9px;cursor:pointer;">20s</button>
+      </div>
+      <div id="year-slider"></div>
+    </div>
+  </div>
+
+  <!-- filters -->
+  <div id="sidebar-scroll">
+
+    <!-- basemap -->
+    <div class="filter-section">
+      <div class="filter-header">BASEMAP</div>
+      <div class="filter-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px;">
+          <button class="map-btn basemap-btn active" id="btn-basemap-auto" onclick="setBasemap('auto')">DARK/STREET</button>
+          <button class="map-btn basemap-btn" id="btn-basemap-sectional" onclick="setBasemap('sectional')">SECTIONAL</button>
+          <button class="map-btn basemap-btn" id="btn-basemap-topo" onclick="setBasemap('topo')">TOPO</button>
+          <button class="map-btn basemap-btn" id="btn-basemap-spike" onclick="setBasemap('spike')">SPIKE</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:5px;align-items:center;">
+          <span style="font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--accent);padding:6px 10px;border:2px solid var(--accent);border-radius:5px;background:rgba(0,212,255,0.12);white-space:nowrap;box-shadow:0 0 8px rgba(0,212,255,0.2);text-align:center;">Zoom: <span id="info-zoom">4</span></span>
+          <button class="map-btn" onclick="map.zoomIn()" style="font-size:15px;padding:6px 14px;font-weight:bold;line-height:1;border-color:var(--accent);color:var(--accent);box-shadow:0 0 8px rgba(0,212,255,0.2);background:rgba(0,212,255,0.12);">+</button>
+          <button class="map-btn" onclick="map.zoomOut()" style="font-size:15px;padding:6px 14px;font-weight:bold;line-height:1;border-color:var(--accent);color:var(--accent);box-shadow:0 0 8px rgba(0,212,255,0.2);background:rgba(0,212,255,0.12);">−</button>
+        </div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:#8899bb;margin-top:6px;letter-spacing:0.5px;">⚠ Sectional best at zoom 6–12</div>
+      </div>
+    </div>
+
+    <!-- MAP MODE -->
+    <div class="filter-section">
+      <div class="filter-header" onclick="toggleSection(this)">MAP MODE <span class="toggle-icon">▾</span></div>
+      <div class="filter-body">
+        <div class="chip-grid">
+          <button class="map-btn active" id="btn-cluster" onclick="setMapMode('cluster')">CLUSTER</button>
+          <button class="map-btn" id="btn-heat" onclick="setMapMode('heat')">HEATMAP</button>
+          <button class="map-btn" id="btn-dots" onclick="setMapMode('dots')">ALL DOTS</button>
+        </div>
+        <div style="margin-top:5px;">
+          <button class="map-btn" id="btn-timeline" onclick="toggleTimeline()" style="width:100%;text-align:center;">TIMELINE ▶</button>
+        </div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:#8899bb;margin-top:6px;letter-spacing:0.5px;">⚠ Switching modes deactivates timeline</div>
+      </div>
+    </div>
+
+    <!-- weather conditions -->
+    <div class="filter-section">
+      <div class="filter-header" onclick="toggleSection(this)">WEATHER CONDITIONS <span class="toggle-icon">▾</span></div>    
+      <div class="filter-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;text-align:center;">
+          <div class="chip active" data-filter="wx" data-val="VMC">VMC</div>
+          <div class="chip active" data-filter="wx" data-val="VFR">VFR</div>
+          <div class="chip active" data-filter="wx" data-val="IMC">IMC</div>
+          <div class="chip active" data-filter="wx" data-val="IFR">IFR</div>
+        </div>
+        <div style="margin-top:5px;">
+          <div class="chip active" data-filter="wx" data-val="OTHER" style="width:100%;text-align:center;">OTHER/UNK</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- aircraft config -->
+    <div class="filter-section">
+      <div class="filter-header" onclick="toggleSection(this)">ENGINE CONFIG <span class="toggle-icon">▾</span></div>
+      <div class="filter-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+          <div class="chip active" data-filter="config" data-val="SINGLE" style="width:100%;text-align:center;">SINGLE ENG</div>
+          <div class="chip active" data-filter="config" data-val="MULTI" style="width:100%;text-align:center;">MULTI ENG</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- aircraft type -->
+    <div class="filter-section">
+      <div class="filter-header" onclick="toggleSection(this)">AIRCRAFT TYPE <span class="toggle-icon">▾</span></div>
+      <div class="filter-body">
+        <div class="chip-grid">
+          <div class="chip active" data-filter="cat" data-val="AIR">AIRPLANE</div>
+          <div class="chip active" data-filter="cat" data-val="HELI">HELICOPTER</div>
+          <div class="chip active" data-filter="cat" data-val="GLI">GLIDER</div>
+          <div class="chip active" data-filter="cat" data-val="BALL">BALLOON</div>
+          <div class="chip active" data-filter="cat" data-val="GYRO">GYROPLANE</div>
+          <div class="chip active" data-filter="cat" data-val="ULTR">ULTRALIGHT</div>
+          <div class="chip active" data-filter="cat" data-val="WSFT">WT-SHIFT</div>
+          <div class="chip active" data-filter="cat" data-val="PPAR">PWRD PARA</div>
+          <div class="chip active" data-filter="cat" data-val="UNMANNED">UNMANNED</div>
+          <div class="chip active" data-filter="cat" data-val="BLIM">BLIMP</div>
+          <div class="chip active" data-filter="cat" data-val="EXPERIMENTAL">EXPERIMENTAL</div>
+          <div class="chip active" data-filter="cat" data-val="ATC">ATC</div>
+        </div>
+        <div style="margin-top:5px;">
+          <div class="chip active" data-filter="cat" data-val="CSF" style="width:100%;text-align:center;">COMMERCIAL SPACEFLIGHT</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- purpose -->
+    <div class="filter-section">
+      <div class="filter-header" onclick="toggleSection(this)">PURPOSE OF FLIGHT <span class="toggle-icon">▾</span></div>
+      <div class="filter-body">
+        <div class="chip-grid">
+          <div class="chip active" data-filter="purpose" data-val="PERS">PERSONAL</div>
+          <div class="chip active" data-filter="purpose" data-val="INST">INSTRUCTIONAL</div>
+          <div class="chip active" data-filter="purpose" data-val="BUS">BUSINESS</div>
+          <div class="chip active" data-filter="purpose" data-val="FERY">FERRY</div>
+          <div class="chip active" data-filter="purpose" data-val="AAPL">AERIAL APP</div>
+          <div class="chip active" data-filter="purpose" data-val="EXEC">EXECUTIVE</div>
+        </div>
+        <div style="margin-top:5px;">
+          <div class="chip active" data-filter="purpose" data-val="OTHER" style="width:100%;text-align:center;">OTHER</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FAR part -->
+    <div class="filter-section">
+      <div class="filter-header" onclick="toggleSection(this)">FAR PART <span class="toggle-icon">▾</span></div>
+      <div class="filter-body">
+        <div class="chip-grid">
+          <div class="chip active" data-filter="far" data-val="91">91</div>
+          <div class="chip active" data-filter="far" data-val="135">135</div>
+          <div class="chip active" data-filter="far" data-val="121">121</div>
+          <div class="chip active" data-filter="far" data-val="107">107 UAS</div>
+          <div class="chip active" data-filter="far" data-val="103">103 UL</div>
+          <div class="chip active" data-filter="far" data-val="137">137 AG</div>
+        </div>
+        <div style="margin-top:5px;">
+          <div class="chip active" data-filter="far" data-val="OTHER" style="width:100%;text-align:center;">OTHER</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- multi-aircraft toggle -->
+    <div class="filter-section">
+      <div class="filter-body" style="text-align:center;">
+        <button class="action-btn" id="btn-multiacft" onclick="toggleMultiAcft()" style="width:100%;padding:8px;font-size:10px;border-color:rgba(0,212,255,0.4);color:#8899bb;background:rgba(0,212,255,0.03);">MULTI-AIRCRAFT ONLY</button>
+      </div>
+    </div>
+
+    <!-- accidents by year -->
+    <div class="filter-section">
+      <div class="filter-body">
+        <div class="chart-title">ACCIDENTS PER YEAR</div>
+        <div class="chart-container">
+          <svg id="year-chart" width="100%" height="100"></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- top makes chart -->
+    <div class="filter-section">
+      <div class="filter-body">
+        <div class="chart-title">TOP 10 AIRCRAFT MAKES BY ACCIDENT</div>
+        <div class="chart-container">
+          <svg id="makes-chart" width="100%" height="220"></svg>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end sidebar-scroll -->
+
+  <!-- bottom buttons -->
+  <div style="padding:8px 14px;background:var(--panel);display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--border);">
+    <button class="action-btn" onclick="toggleAnalytics()" style="width:100%;padding:6px;font-size:10px;font-weight:700;border-color:rgba(0,212,255,0.4);color:#8899bb;background:rgba(0,212,255,0.03);">ANALYTICS</button>
+    <div style="display:flex;gap:6px;">
+      <button class="action-btn" id="reset-btn" onclick="resetFilters()">RESET FILTERS</button>
+      <button class="action-btn" id="map-reset-btn" onclick="resetMap()">RESET MAP</button>
+    </div>
+    <button class="action-btn" onclick="toggleHelp()" style="width:100%;padding:6px;font-size:10px;font-weight:700;border-color:rgba(0,212,255,0.4);color:#8899bb;background:rgba(0,212,255,0.03);">HELP &amp; INFO</button>
+    <button class="action-btn" onclick="toggleDocs()" style="width:100%;padding:6px;font-size:10px;font-weight:700;border-color:rgba(0,212,255,0.4);color:#8899bb;background:rgba(0,212,255,0.03);">DOCUMENTATION</button>
+  </div>
+
+</div><!-- end sidebar -->
+
+<!-- help drawer -slides out from sidebar edge, explains controls -->
+<div id="help-drawer">
+  <div id="help-drawer-inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;">
+      <div style="font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:2px;">HELP &amp; INFO</div>
+      <div onclick="toggleHelp()" style="color:var(--text-dim);cursor:pointer;font-size:16px;line-height:1;">✕</div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-heading">MAP CONTROLS</div>
+      <div class="help-item">Click any <span class="help-hl">dot or cluster</span> to open the accident popup</div>
+      <div class="help-item">Click the <span class="help-hl">NTSB case number</span> in the popup to open the full investigation docket on the NTSB website</div>
+      <div class="help-item"><span class="help-hl">CLUSTER</span> groups nearby accidents -zoom in to separate them. Large datasets may render slowly</div>
+      <div class="help-item"><span class="help-hl">HEATMAP</span> shows accident density weighted by injury severity</div>
+      <div class="help-item"><span class="help-hl">ALL DOTS</span> plots every individual accident</div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-heading">FILTERS</div>
+      <div class="help-item"><span class="help-hl">Single click</span> any filter button to toggle on/off</div>
+      <div class="help-item"><span class="help-hl">Double-click</span> to isolate that category -hides all others</div>
+      <div class="help-item">Double-click again to <span class="help-hl">restore all</span> in that group</div>
+      <div class="help-item">Year range slider filters by accident date</div>
+      <div class="help-item">Injury level buttons in the top legend control dot colors on the map</div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-heading">BASEMAP</div>
+      <div class="help-item"><span class="help-hl">DARK/STREET</span> switches between dark map (zoomed out) and street map (zoomed in)</div>
+      <div class="help-item"><span class="help-hl">SECTIONAL</span> overlays FAA VFR sectional charts -best at zoom 6–12</div>
+      <div class="help-item">Sectional view automatically switches to ALL DOTS mode</div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-heading">TIMELINE</div>
+      <div class="help-item">Animates accidents <span class="help-hl">year by year</span> from 1962 to 2025</div>
+      <div class="help-item">Press <span class="help-hl">▶</span> to play, <span class="help-hl">✕</span> to close and return to your previous view</div>
+      <div class="help-item">Stats update in real time as the timeline advances</div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-heading">DATA</div>
+      <div class="help-item"><span class="help-hl">168,793</span> US civil aviation accidents · 1962–2025</div>
+      <div class="help-item">Source: <span class="help-hl">NTSB Aviation Accident Database</span></div>
+      <div class="help-item">Some older records have approximate <span class="help-hl">city-level coordinates</span> -flagged ⚠ in the popup</div>
+      <div class="help-item">Pre-2009 dockets may not be publicly released on the NTSB website</div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-heading">BUILT WITH</div>
+      <div class="help-item"><span class="help-hl">Leaflet</span> -interactive map with cluster, heatmap, and individual dot rendering modes</div>
+      <div class="help-item"><span class="help-hl">MarkerCluster</span> -groups nearby markers into clickable clusters that split apart on zoom</div>
+      <div class="help-item"><span class="help-hl">D3.js</span> -line chart, bar chart, donut chart, sparklines, and US state choropleth</div>
+      <div class="help-item"><span class="help-hl">TopoJSON</span> - US state boundary geometry for the choropleth map</div>
+      <div class="help-item"><span class="help-hl">PapaParse</span> -parses the 154k-row CSV dataset client-side in the browser</div>
+      <div class="help-item"><span class="help-hl">noUiSlider</span> -dual-handle year range slider</div>
+      <div class="help-item">All data is loaded from a <span class="help-hl">static CSV file</span> -no server or database required</div>
+      <div class="help-item">Basemap tiles served by <span class="help-hl">CARTO</span> (dark/voyager), <span class="help-hl">FAA</span> (sectional), and <span class="help-hl">OpenTopoMap</span></div>
+    </div>
+
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-family:'Share Tech Mono',monospace;font-size:11px;color:#bf5fff;text-align:center;letter-spacing:1.5px;font-weight:700;">
+      Software Engineered by: Michael J Evan
+    </div>
+
+    <div style="margin-top:14px;font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);text-align:center;letter-spacing:1px;">
+      NTSB DATA IS PUBLIC DOMAIN
+    </div>
+  </div>
+</div>
+
+<!-- documentation drawer -->
+<div id="docs-drawer">
+  <div id="docs-drawer-inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;">
+      <div style="font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:2px;">DOCUMENTATION</div>
+      <div onclick="toggleDocs()" style="color:var(--text-dim);cursor:pointer;font-size:16px;line-height:1;">&#10005;</div>
+    </div>
+
+    <h1>CSS 568 DATA VISUALIZATION - Final Project</h1>
+    <h2>Interactive Visualization of NTSB Aviation Accident Data</h2>
+    <div class="doc-subtitle" style="color:var(--accent);margin-bottom:2px;">Michael Evan - Graduate Computer Science Department</div>
+    <div class="doc-subtitle" style="color:var(--accent);">University of Massachusetts Dartmouth</div>
+    <hr>
+
+    <h2>Introduction</h2>
+    <p>Aviation safety data collected by the National Transportation Safety Board (NTSB) spans over six decades of US civil aviation accidents. The database contains detailed records including aircraft information, injury severity, weather conditions, probable cause narratives, and geographic coordinates for each event. While this data is publicly available, exploring it in its raw form offers little insight without the ability to filter, compare, and visualize patterns across multiple dimensions simultaneously. This project builds an interactive, browser-based visualization platform that enables real-time exploration of 168,793 NTSB aviation accident records from 1962 to 2025, combining geographic mapping with analytical charts and multi-dimensional filtering to surface patterns in the data that static reports cannot reveal.</p>
+
+    <h2>Problem Definition</h2>
+    <p>The NTSB Aviation Accident Database is one of the most comprehensive aviation safety datasets in the world, yet accessing and analyzing it remains difficult for most users. The raw data is delivered as flat CSV files with inconsistent formatting across decades of data entry by different investigators. Many records lack precise coordinates, aircraft field naming conventions changed over the years, and multi-aircraft events are stored as comma-separated values within single fields rather than normalized across rows. Building a visualization tool on this data required not only the technical implementation of interactive maps and charts but also significant data cleaning and enrichment to make the records usable. The challenge was to build a single-page application capable of rendering 168,793 records across multiple visualization modes with real-time filtering, without requiring any server-side infrastructure.</p>
+
+    <h2>Methodology</h2>
+    <p>The project was built as a single HTML file with all functionality implemented client-side using JavaScript. The technology stack was selected based on the strengths of each library for specific visualization tasks:</p>
+    <ul>
+      <li><strong>Leaflet</strong> was chosen for the interactive map because it handles tile-based maps with pan, zoom, and marker rendering efficiently. Leaflet's plugin ecosystem provided MarkerCluster for grouping nearby accidents and Leaflet.heat for density visualization.</li>
+      <li><strong>D3.js</strong> was chosen for all analytical charts because it provides full control over SVG and canvas rendering. D3 powers the line chart (accidents per year), horizontal bar chart (top aircraft makes), donut chart (injury severity breakdown), choropleth (state-level accident density), sparklines (trend indicators), and the full-screen spike map with county-level drill-down.</li>
+      <li><strong>TopoJSON</strong> provided the geographic boundary data for US states and counties, enabling the choropleth and spike map visualizations.</li>
+      <li><strong>PapaParse</strong> handled client-side CSV parsing of the 168,793-record dataset.</li>
+      <li><strong>noUiSlider</strong> provided the dual-handle year range slider for date filtering.</li>
+    </ul>
+    <p>All basemap tiles are served from external tile providers. CARTO provides the dark and street map tiles, the FAA provides VFR sectional chart tiles, and OpenTopoMap provides terrain/elevation tiles. The application requires no backend server and runs entirely in the browser, making it suitable for deployment on GitHub Pages as a static site.</p>
+
+    <h2>Implementation</h2>
+
+    <h3>Data Preprocessing and Enrichment</h3>
+    <p>The raw NTSB dataset required significant cleaning before it could be used effectively in the visualization. The following preprocessing steps were performed offline using Python 3 with Pandas for data manipulation, CSV parsing, and analysis, and Shapely for geographic point-in-polygon computations:</p>
+    <p><strong>Coordinate Recovery:</strong> A substantial number of older accident records lacked precise GPS coordinates. Using airport identifier codes and city/state information from the records, coordinates were recovered by cross-referencing against a database of 32,452 US airports and a city centroid lookup table. Each record's coordinate source was tagged (GPS/survey, airport lookup, city centroid, or state centroid) to maintain transparency about data quality. Records with city-level coordinates were flagged in the application's popup display with a warning indicator.</p>
+    <p><strong>Coordinate Jitter:</strong> Many accidents geocoded to city centroids shared identical coordinates, causing dots to stack on top of each other on the map. A random offset of approximately 1km was applied to city and state centroid records so individual accidents spread apart when zoomed in while still appearing clustered at the city level when zoomed out.</p>
+    <p><strong>Engine Count Correction:</strong> The NumberOfEngines field contained numerous blanks and errors. Gliders and balloons with blank engine counts were set to 0. Helicopters and airplanes with missing counts were identified by Make and Model and assigned the correct engine count. Known single-engine models (Bell 206, Cessna 172, etc.) were set to 1, and known twin-engine models (Sikorsky S-76, Bell 412, Boeing 737, etc.) were set to 2 or 4 as appropriate. Individual records were verified against publicly available aircraft specifications.</p>
+    <p><strong>Multi-Aircraft Flagging:</strong> Multi-aircraft accidents (midair collisions, runway incursions, ground collisions) were identified using two methods. First, records with comma-separated values in the AirCraftCategory field indicated two aircraft were involved in the same event. Second, the ProbableCause text was searched for keywords including "midair collision," "other aircraft," "runway incursion," and similar phrases. Both methods were combined and the results were manually reviewed to remove false positives such as bird strikes, tree collisions, and other single-aircraft events that happened to mention another aircraft in the narrative. A total of 2,124 multi-aircraft accidents were identified and flagged.</p>
+    <p><strong>County Assignment:</strong> Each accident record was assigned to a US county using point-in-polygon geometric testing against 3,220 county boundary polygons. A bounding box pre-filter was applied to reduce the computational cost by eliminating county polygons that could not possibly contain a given point before running the full geometry check. County FIPS codes and names were stored directly in the CSV to eliminate any runtime geometry calculations. The Python Shapely library with prepared geometries provided the spatial analysis.</p>
+    <p><strong>State Centroid Records:</strong> Approximately 14,658 records had coordinates placed at their state's geographic centroid due to insufficient location data in the original NTSB records. These records were merged into the main dataset with all enrichments applied but are identified separately in the application. Their data contributes to all statistical calculations but their map positions are acknowledged as approximate through "unlocated" indicators in the spike map and county drill-down views.</p>
+
+    <h3>Map Visualization Modes</h3>
+    <p>The application provides four basemap options and three interactive map modes for viewing accident data on the Leaflet map:</p>
+    <p><strong>Cluster Mode</strong> groups nearby accident markers into numbered circles that split apart as the user zooms in. Cluster icons are color-coded by the worst injury severity in the group (red for fatal, orange for serious, yellow for minor, green for none). Individual markers use DOM-based divIcon elements to ensure reliable click interaction for opening accident detail popups. A batched rendering system with a progress indicator prevents the browser from freezing during the creation of 168,793 markers, and mode-switching buttons are disabled during rendering to prevent users from interrupting the process.</p>
+    <p><strong>Heatmap Mode</strong> renders accident density as a continuous color gradient using the Leaflet.heat plugin. Intensity is weighted by injury severity so fatal accidents contribute more visual weight than minor incidents.</p>
+    <p><strong>All Dots Mode</strong> renders every accident as an individual circle marker on an HTML5 canvas element for performance. A batched rendering system with a token-based cancellation mechanism prevents old render batches from contaminating new renders when filters change mid-build. Dot size scales with zoom level for visibility at different scales.</p>
+    <p><strong>Timeline Mode</strong> animates through the dataset year by year, re-rendering the current map mode for each year's data with a playback transport bar showing year, progress, and play/pause controls.</p>
+
+    <h3>Spike Map and County Drill-Down</h3>
+    <p>A full-screen D3.js spike map provides a state-level overview where vertical spikes rise from each state proportional to accident count. Spike color transitions from blue (low) through cyan (mid) to red (high). Hovering over any state or spike displays a tooltip with accident count, fatal count, fatality rate, total fatalities, and the number of unlocated records for that state.</p>
+    <p>Clicking a state transitions to a county-level drill-down view. County boundaries are rendered as a choropleth colored by accident density using a threshold scale with six color buckets. Individual accident dots are rendered on an HTML5 canvas element overlaid on the SVG county paths. This separation ensures that the canvas dots do not interfere with SVG hover event detection on the county polygons, providing instant tooltip response regardless of how many dots are rendered. A clip path derived from the merged state boundary prevents dots from rendering outside the state outline. A back button returns to the national spike map view.</p>
+    <p>County accident counts are derived from the pre-computed CountyFIPS field in the CSV, requiring zero runtime geometry. When a state has unlocated records (state-centroid coordinates), county hover counts are prefixed with a tilde (~) to indicate the values are approximate minimums.</p>
+
+    <h3>Filter System</h3>
+    <p>Eight filter dimensions are available, all operating simultaneously with AND logic between groups and OR logic within groups:</p>
+    <ul>
+      <li><strong>Year Range</strong> with dual-handle slider, numeric input fields, decade shortcut buttons, and a reset button</li>
+      <li><strong>Injury Severity</strong> toggle buttons (Fatal, Serious, Minor, None, Unknown) in the sidebar legend</li>
+      <li><strong>Weather Conditions</strong> (VMC, VFR, IMC, IFR, Other)</li>
+      <li><strong>Engine Configuration</strong> (Single Engine, Multi Engine)</li>
+      <li><strong>Aircraft Type</strong> (Airplane, Helicopter, Glider, Balloon, Gyroplane, Ultralight, Weight-Shift, Powered Parachute, Unmanned, Blimp, Experimental, ATC, Commercial Spaceflight)</li>
+      <li><strong>Purpose of Flight</strong> (Personal, Instructional, Business, Aerial Application, Ferry, Executive, Other)</li>
+      <li><strong>FAR Part</strong> (91, 135, 121, 107 UAS, 103 Ultralight, 137 Agricultural, Other)</li>
+      <li><strong>Multi-Aircraft Only</strong> standalone toggle that activates all other filters and restricts display to the 2,124 flagged multi-aircraft events</li>
+    </ul>
+    <p>All filters update every visualization in real time including the map, charts, sparklines, statistics, choropleth, spike map, and county drill-down. Chip filters support single-click toggle and double-click isolate (deactivates all others in the group).</p>
+
+    <h3>Analytics Drawer</h3>
+    <p>A slide-out analytics drawer contains four D3.js visualizations at full size, all updating in real time with the current filtered dataset:</p>
+    <ul>
+      <li><strong>US State Choropleth</strong> with threshold color scale, D3 custom tooltips showing state name, accident count, percentage, fatal count, fatality rate, and fatalities. State outlines highlight on hover.</li>
+      <li><strong>Accidents Per Year</strong> area/line chart with gradient fill, grid lines, and 5-year axis tick intervals.</li>
+      <li><strong>Top 10 Aircraft Makes by Accident</strong> horizontal bar chart with Plasma color scale.</li>
+      <li><strong>Injury Severity Breakdown</strong> donut chart with percentage labels and centered total count.</li>
+    </ul>
+
+    <h3>Sidebar Visualizations</h3>
+    <p>The sidebar header contains four sparkline SVG charts showing year-over-year trends for total accidents, fatal accidents, serious injuries, and fatalities. These update with every filter change providing an immediate visual indicator of whether a trend is improving or worsening for the selected filter combination.</p>
+    <p>Small versions of the year chart and makes chart are also rendered in the sidebar scroll area for quick reference without opening the analytics drawer.</p>
+
+    <h3>Responsive Design</h3>
+    <p>The layout adapts across screen sizes using CSS media queries at four breakpoints. The sidebar narrows from 340px to 260px on smaller screens. The analytics and help drawers scale their width using calc() based on viewport width. On mobile devices the drawers render as full-screen overlays above the sidebar. All D3 charts use their container's clientWidth for responsive sizing.</p>
+
+    <h2>Challenges</h2>
+    <p><strong>NTSB Data Inconsistency:</strong> The most significant challenge was the inconsistency of the source data across six decades. Aircraft make names appeared in multiple formats (CESSNA, Cessna, cessna). The NumberOfEngines field contained blanks, zeros, and comma-separated values for multi-aircraft events. Probable cause narratives used varied phrasing for the same causal factors. Builder names with commas in the Make field (e.g., "ANKERMAN, DONALD L.") were initially misidentified as multi-aircraft records. Each inconsistency required detection, analysis, and a targeted fix.</p>
+    <p><strong>Canvas vs DOM Rendering:</strong> Leaflet's preferCanvas option caused cluster markers rendered as circleMarkers on a canvas element to lose click interactivity. Switching cluster markers to DOM-based divIcon elements resolved the click issue but increased rendering time due to creating 168,793 individual DOM elements. The All Dots mode uses a dedicated canvas renderer that must be properly destroyed (not just hidden) when switching modes to prevent the canvas from intercepting click events on other layers.</p>
+    <p><strong>Cluster Rendering Performance:</strong> Building 168,793 MarkerCluster markers takes several seconds even on fast hardware. A batched rendering system with a progress bar and disabled mode buttons was implemented to prevent users from clicking away during the build process. A requestAnimationFrame polling mechanism detects when cluster icons actually appear in the DOM before dismissing the loading indicator, ensuring consistent behavior regardless of machine speed. An edge case where zero filtered records caused the polling to run indefinitely was addressed with an early exit check.</p>
+    <p><strong>County Drill-Down Performance:</strong> Initial implementations performed point-in-polygon geometry checks at runtime for each accident against all county polygons when a state was clicked. This took 4+ seconds for large states like Texas and California. Moving the county assignment to offline preprocessing and storing the results in the CSV eliminated all runtime geometry, making county views render instantly.</p>
+    <p><strong>County Hover Lag:</strong> Rendering thousands of SVG circle elements for accident dots caused severe hover lag on county polygons due to browser hit-testing through the DOM tree. Replacing SVG circles with a single HTML5 canvas element for dot rendering eliminated the lag entirely while maintaining SVG-based interactive county hover tooltips.</p>
+
+    <h2>Limitations</h2>
+    <ul>
+      <li>Approximately 14,658 records have only state-level coordinate accuracy, placed at state geographic centroids. These records are included in all statistical calculations but their map positions are approximate.</li>
+      <li>Only 679 of the 14,658 merged records have probable cause text. Most are older records (1960s-1970s) where the NTSB did not digitize the probable cause narrative.</li>
+      <li>The application is entirely client-side. The 37MB CSV file must be downloaded in full before the application becomes functional. On slow internet connections this initial load can take 30-60 seconds, though GitHub Pages serves the file with gzip compression reducing the actual transfer to approximately 10MB.</li>
+      <li>Cluster mode rendering time is dependent on client hardware. Older machines may experience 15-30 second rendering times when switching to cluster mode with the full unfiltered dataset.</li>
+      <li>County-level accident counts for states with unlocated records are minimum values, not exact totals.</li>
+    </ul>
+
+    <h2>Discussion</h2>
+    <p>The project demonstrates that a single-page browser application with no backend infrastructure can effectively visualize and enable interactive exploration of a large-scale aviation safety dataset. The combination of Leaflet for geographic visualization and D3.js for analytical charts provides complementary strengths. Leaflet handles the interactive pan/zoom map with efficient tile rendering and marker management. D3 provides the precise control needed for custom chart types including the spike map, choropleth, and donut chart.</p>
+    <p>The data preprocessing pipeline proved to be as significant as the visualization implementation itself. The raw NTSB data required coordinate recovery, standardization of inconsistent fields, flagging of multi-aircraft events, and geographic enrichment with county-level assignments. Without this preprocessing, the visualization would have been limited to plotting raw coordinates with no meaningful filtering or geographic aggregation.</p>
+    <p>The spike map with county drill-down provides a visualization capability not available in the NTSB's own query tools. Users can identify state-level patterns, drill into county-level density, and cross-reference with filters for aircraft type, weather conditions, and injury severity to investigate specific scenarios.</p>
+    <p>Future work on this project could include automated classification of probable cause narratives using natural language processing or fine-tuned language models. A pre-computed cause category field would enable real-time analysis of why accidents happen for any filtered combination, transitioning the tool from a visualization platform to an analytical one. Integration of a small fine-tuned language model running locally via WebLLM could enable conversational queries against the dataset directly within the application.</p>
+
+    <h2>Conclusion</h2>
+    <p>The project integrates geographic visualization, analytical charting, and multi-dimensional filtering into a single interactive platform for exploring NTSB aviation accident data. Six D3.js visualization types (line chart, bar chart, donut chart, sparklines, choropleth, and spike map) work alongside three Leaflet map modes (cluster, heatmap, all dots) and a timeline animation to provide multiple perspectives on the same dataset. All visualizations update in real time as filters are applied. The spike map with state-to-county drill-down enables geographic analysis from national overview to individual county level. The entire application runs client-side as a static site deployable on GitHub Pages with no server dependencies.</p>
+    <p>From choosing a visualization approach, cleaning and enriching 168,793 records of inconsistent government data, implementing multiple rendering strategies to handle performance constraints, and building an interactive analytical tool from start to finish as an individual teaches the integration of multiple JavaScript libraries, the challenges of working with real-world messy data, and the importance of preprocessing in any data visualization pipeline.</p>
+
+    <h2>Resources</h2>
+    <ul>
+      <li>M1 MacBook Pro</li>
+      <li>Visual Studio Code</li>
+      <li>Python 3 with Pandas and Shapely for data cleaning and geographic preprocessing</li>
+      <li>Leaflet 1.9.4 with MarkerCluster and Leaflet.heat plugins</li>
+      <li>D3.js 7.8.5</li>
+      <li>TopoJSON Client 3.1.0</li>
+      <li>PapaParse 5.4.1</li>
+      <li>noUiSlider 15.7.1</li>
+      <li>CARTO basemap tiles (dark, voyager)</li>
+      <li>FAA VFR Sectional chart tiles</li>
+      <li>OpenTopoMap terrain tiles</li>
+      <li>US Census Bureau state and county boundary data (TopoJSON format)</li>
+      <li>NTSB Aviation Accident Database (public domain)</li>
+    </ul>
+
+    <h2>References</h2>
+    <ul>
+      <li>Leaflet documentation: leafletjs.com</li>
+      <li>D3.js documentation: d3js.org</li>
+      <li>MarkerCluster plugin: github.com/Leaflet/Leaflet.markercluster</li>
+      <li>TopoJSON specification: github.com/topojson/topojson</li>
+      <li>NTSB Aviation Accident Database: ntsb.gov</li>
+      <li>US Census Bureau geographic data: census.gov</li>
+      <li>JavaScript Absolute Beginner's Guide: Kirupa Chinnathambi</li>
+      <li>Eloquent JavaScript 3rd Edition: Marijn Haverbeke</li>
+      <li>Web Development with HTML CSS, and JavaScript: Kevin Wilson</li>
+      <li>D3 for the Impatient: Phillip K. Janert</li>
+      <li>D3.js in Action: Elijah Meeks</li>
+      <li>Introducing Python - Modern Computing in Simple Packages: Bill Lubanovic</li>
+      <li>Python Crash Course 3rd Edition: Eric Matthes</li>
+      <li>Pandas documentation: pandas.pydata.org</li>
+      <li>Visualization Analysis and Design: Tamara Munzner</li>
+    </ul>
+
+    <div style="margin-top:24px;padding-top:12px;border-top:1px solid var(--border);font-family:'Share Tech Mono',monospace;font-size:11px;color:#bf5fff;text-align:center;font-weight:700;letter-spacing:1.5px;">
+      Software Engineered by: Michael J Evan
+    </div>
+    <div style="margin-top:14px;font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);text-align:center;letter-spacing:1px;">
+      NTSB DATA IS PUBLIC DOMAIN
+    </div>
+    <div style="height:40px;"></div>
+  </div>
+</div>
+
+<!-- choropleth tooltip -->
+<div id="choro-tooltip"></div>
+
+<!-- analytics drawer -choropleth, big year chart, makes chart, donut -->
+<div id="analytics-drawer">
+  <div id="analytics-drawer-inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;">
+      <div style="font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:var(--accent);letter-spacing:2px;">ANALYTICS</div>
+      <div onclick="toggleAnalytics()" style="color:var(--text-dim);cursor:pointer;font-size:16px;line-height:1;">&#10005;</div>
+    </div>
+    <div class="chart-title" style="font-size:11px;margin-bottom:10px;">ACCIDENTS BY STATE</div>
+    <div class="chart-container">
+      <svg id="choropleth-lg" width="100%" height="340"></svg>
+    </div>
+    <div class="chart-title" style="font-size:11px;margin-top:24px;margin-bottom:10px;">ACCIDENTS PER YEAR</div>
+    <div class="chart-container">
+      <svg id="year-chart-lg" width="100%" height="280"></svg>
+    </div>
+    <div class="chart-title" style="font-size:11px;margin-top:24px;margin-bottom:10px;">TOP 10 AIRCRAFT MAKES BY ACCIDENT</div>
+    <div class="chart-container">
+      <svg id="makes-chart-lg" width="100%" height="420"></svg>
+    </div>
+    <div class="chart-title" style="font-size:11px;margin-top:24px;margin-bottom:10px;">INJURY SEVERITY BREAKDOWN</div>
+    <div class="chart-container">
+      <svg id="donut-lg" width="100%" height="380"></svg>
+    </div>
+    <div style="height:80px;"></div>
+  </div>
+</div>
+
+<!-- map container -leaflet map, info bar, and timeline controls -->
+<div id="map-container">
+  <div id="map"></div>
+  <!-- spike map -full screen D3 overlay, hidden by default -->
+  <div id="spike-map" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:600;background:var(--bg);">
+    <svg id="spike-svg" width="100%" height="100%"></svg>
+  </div>
+
+  <!-- map loading indicator for cluster builds -->
+  <div id="map-loading" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:800;background:rgba(5,8,16,0.85);border:1px solid var(--accent);border-radius:6px;padding:14px 28px;backdrop-filter:blur(8px);text-align:center;">
+    <div style="font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:1.5px;">RENDERING CLUSTERS...</div>
+    <div style="width:180px;height:2px;background:var(--border);border-radius:1px;margin-top:8px;overflow:hidden;">
+      <div id="map-loading-fill" style="height:100%;width:0%;background:var(--accent);transition:width 0.2s;box-shadow:0 0 8px rgba(0,212,255,0.6);"></div>
+    </div>
+  </div>
+
+  <div id="map-info">
+    Showing <span id="info-count">—</span> of <span id="info-total">—</span> events
+  </div>
+
+  <!-- timeline bar -->
+  <div id="timeline-bar">
+    <button id="anim-play-btn" onclick="toggleAnimPlay()">▶</button>
+    <div id="anim-year-display">1962</div>
+    <div id="anim-progress"><div id="anim-progress-fill"></div></div>
+    <div id="anim-close" onclick="closeTimeline()">✕</div>
+    <div style="position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);white-space:nowrap;letter-spacing:0.5px;">⚠ Switching modes deactivates timeline</div>
+  </div>
+
+</div>
+
+<script>
+// ************************************************
+// global variables and constants
+// ************************************************
+
+let allData = [];       // every valid row from the CSV
+let filteredData = [];  // whatever survives the current filter combo
+let map, clusterGroup, heatLayer, dotsLayer;
+let dotsZoomHandler = null;
+let dotsRenderer = null;
+let dotsBatchCancelled = false;  // flag to kill in-progress dot batches when switching modes
+let darkLayer, voyagerLayer, sectionalLayer, topoLayer;
+let currentMode = 'cluster';   // cluster | heat | dots | timeline
+let currentBasemap = 'auto';   // auto | sectional
+let timelineActive = false;
+let multiAcftActive = false;
+let spikeViewState = null; // null = national, 'StateName' = county drill-down
+const STATE_FIPS = {'Alabama':'01','Alaska':'02','Arizona':'04','Arkansas':'05','California':'06','Colorado':'08','Connecticut':'09','Delaware':'10','District of Columbia':'11','Florida':'12','Georgia':'13','Hawaii':'15','Idaho':'16','Illinois':'17','Indiana':'18','Iowa':'19','Kansas':'20','Kentucky':'21','Louisiana':'22','Maine':'23','Maryland':'24','Massachusetts':'25','Michigan':'26','Minnesota':'27','Mississippi':'28','Missouri':'29','Montana':'30','Nebraska':'31','Nevada':'32','New Hampshire':'33','New Jersey':'34','New Mexico':'35','New York':'36','North Carolina':'37','North Dakota':'38','Ohio':'39','Oklahoma':'40','Oregon':'41','Pennsylvania':'42','Rhode Island':'44','South Carolina':'45','South Dakota':'46','Tennessee':'47','Texas':'48','Utah':'49','Vermont':'50','Virginia':'51','Washington':'53','West Virginia':'54','Wisconsin':'55','Wyoming':'56'};
+let animPlaying = false;
+let animYear = 1962;
+let animTimer = null;
+let filterDebounceTimer = null;
+
+// zoom level where we swap dark tiles for voyager (street-level detail)
+const ZOOM_THRESHOLD = 8;
+
+// 150ms debounce so rapid chip clicks don't re-filter on every single toggle
+function debounceFilter() {
+  clearTimeout(filterDebounceTimer);
+  filterDebounceTimer = setTimeout(applyFilters, 150);
+}
+
+// color coding used everywhere: markers, clusters, heatmap weights, popups
+const INJURY_COLORS = {
+  'Fatal':   '#ff2d55',
+  'Serious': '#ff9f0a',
+  'Minor':   '#ffd60a',
+  'None':    '#30d158',
+  'Unknown': '#a0a0b0',
+  '':        '#a0a0b0'  // fallback for missing data
+};
+
+const MIN_YEAR = 1962, MAX_YEAR = 2025;
+
+// *************************************************
+// INIT MAP
+// *************************************************
+function initMap() {
+  // centered on geographic middle of US, canvas mode for perf with 150k+ markers
+  map = L.map('map', {
+    center: [39.5, -98.35],
+    zoom: 4,
+    zoomControl: false,
+    preferCanvas: true
+  });
+
+  // dark tiles look great zoomed out, but voyager has better street detail up close
+  darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a> | NTSB Data',
+    subdomains: 'abcd',
+    maxZoom: 19,
+    maxNativeZoom: 19
+  });
+
+  voyagerLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a> | NTSB Data',
+    subdomains: 'abcd',
+    maxZoom: 19,
+    maxNativeZoom: 19
+  });
+
+  // FAA VFR sectional charts -only has tiles for zoom 5-12ish
+  sectionalLayer = L.tileLayer(
+    'https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}',
+    {
+      attribution: '&copy; <a href="https://www.faa.gov/">FAA</a> VFR Sectional | NTSB Data',
+      minZoom: 5,
+      maxZoom: 13,
+      maxNativeZoom: 12,
+      opacity: 1.0,
+      zIndex: 1,
+      interactive: false
+    }
+  );
+
+  // OpenTopoMap -terrain/elevation contours
+  topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> | NTSB Data',
+    maxZoom: 17,
+    maxNativeZoom: 17
+  });
+
+  darkLayer.addTo(map);
+
+  // auto-swap basemap tiles at the zoom threshold (dark <-> voyager)
+  map.on('zoomend', function() {
+    document.getElementById('info-zoom').textContent = map.getZoom();
+    if (currentBasemap !== 'auto') return; // only auto mode swaps dark/voyager on zoom
+    const z = map.getZoom();
+    if (z >= ZOOM_THRESHOLD && map.hasLayer(darkLayer)) {
+      map.removeLayer(darkLayer);
+      voyagerLayer.addTo(map);
+      voyagerLayer.bringToBack();
+    } else if (z < ZOOM_THRESHOLD && map.hasLayer(voyagerLayer)) {
+      map.removeLayer(voyagerLayer);
+      darkLayer.addTo(map);
+      darkLayer.bringToBack();
+    }
+  });
+}
+
+// *************************************************
+// LOAD DATA
+// *************************************************
+function loadData() {
+  setLoadStatus('FETCHING ACCIDENT RECORDS...', 10);
+
+  // PapaParse handles the CSV download + parsing in one shot
+  Papa.parse('USonly_v3.csv', {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    worker: false,
+    step: null,
+    complete: function(results) {
+      setLoadStatus('PARSING DATA...', 60);
+      // toss rows with missing or broken coordinates
+      allData = results.data.filter(r => r.Latitude && r.Longitude && !isNaN(parseFloat(r.Latitude)));
+
+      // city-centroid coords all stack on the exact same point, so add
+      // a small random offset (~1km) to spread them out visually
+      const CITY_SOURCES = ['city', 'city_corrected', 'city_simplemaps'];
+      allData.forEach(r => {
+        if (CITY_SOURCES.includes(r.CoordSource)) {
+          r.Latitude  = (parseFloat(r.Latitude)  + (Math.random() - 0.5) * 0.02).toString();
+          r.Longitude = (parseFloat(r.Longitude) + (Math.random() - 0.5) * 0.02).toString();
+        }
+      });
+
+      setLoadStatus('BUILDING FILTERS & CHARTS...', 75);
+      setTimeout(() => {
+        filteredData = [...allData];
+        buildYearSlider();
+        buildCharts(filteredData);
+        updateStats(filteredData);
+        updateInfoBar(filteredData.length, allData.length);
+
+        setLoadStatus('BUILDING MAP MARKERS...', 80);
+        // 10k batch size keeps the UI responsive during initial marker build
+        const total = filteredData.length;
+        const batchSize = 10000;
+        let idx = 0;
+
+        // cluster icon color = worst injury in that cluster (fatal > serious > minor)
+        clusterGroup = L.markerClusterGroup({
+          chunkedLoading: true,
+          chunkInterval: 100,
+          chunkDelay: 50,
+          maxClusterRadius: 50,
+          iconCreateFunction: function(cluster) {
+            const count = cluster.getChildCount();
+            const markers = cluster.getAllChildMarkers();
+            // walk through markers to find worst injury -bail early on fatal
+            let worst = 'None';
+            for (const m of markers) {
+              if (m.options.injuryLevel === 'Fatal') { worst = 'Fatal'; break; }
+              if (m.options.injuryLevel === 'Serious') worst = 'Serious';
+              else if (m.options.injuryLevel === 'Minor' && worst !== 'Serious') worst = 'Minor';
+            }
+            const color = INJURY_COLORS[worst] || '#636366';
+            // bigger clusters get bigger icons so the number fits
+            const size = count > 1000 ? 44 : count > 100 ? 36 : 28;
+            return L.divIcon({
+              html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color}22;border:2px solid ${color};display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:${count>999?11:13}px;color:${color};box-shadow:0 0 8px ${color}44">${count > 9999 ? Math.round(count/1000)+'k' : count}</div>`,
+              className: '',
+              iconSize: [size, size],
+              iconAnchor: [size/2, size/2]
+            });
+          }
+        });
+
+        // build markers in batches so we don't lock up the UI for large datasets
+        function buildBatch() {
+          const end = Math.min(idx + batchSize, total);
+          for (; idx < end; idx++) {
+            const r = filteredData[idx];
+            const lat = parseFloat(r.Latitude);
+            const lng = parseFloat(r.Longitude);
+            if (isNaN(lat) || isNaN(lng)) continue;
+            const inj = r.HighestInjuryLevel || '';
+            const color = INJURY_COLORS[inj] || '#636366';
+            const marker = L.marker([lat, lng], {
+              icon: L.divIcon({
+                className: '',
+                iconSize: [14, 14],
+                iconAnchor: [7, 7],
+                html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:1px solid #111;box-sizing:border-box"></div>`
+              }),
+              injuryLevel: inj,
+            });
+            marker.bindPopup(() => buildPopup(r), { maxWidth: 320 });
+            clusterGroup.addLayer(marker);
+          }
+          const pct = 80 + Math.round((idx / total) * 19);
+          setLoadStatus('BUILDING MAP MARKERS... ' + Math.round((idx / total) * 100) + '%', pct);
+          // schedule next batch
+          if (idx < total) {
+            setTimeout(buildBatch, 10);
+          } else {
+            map.addLayer(clusterGroup);
+            if (currentBasemap === 'sectional') sectionalLayer.bringToBack();
+            setLoadStatus('READY', 100);
+            // short delay so the progress bar visually hits 100% before we hide it
+            setTimeout(() => {
+              document.getElementById('loading-overlay').classList.add('hidden');
+              document.getElementById('header-count').textContent = allData.length.toLocaleString();
+              map.invalidateSize(); // leaflet needs this after the overlay disappears
+            }, 3000); // 3s delay so users see the "READY" status before it fades away
+          }
+        }
+        buildBatch(); // start the first batch
+      }, 50); // short delay to let the "PARSING DATA" status update before we start building charts and markers
+    },
+    error: function(err) {
+      setLoadStatus('ERROR: ' + err.message, 0);  // eslint-disable-next-line no-console
+    }
+  });
+}
+// simple helper to update the loading overlay text and progress bar during the initial data load and marker build
+function setLoadStatus(msg, pct) {
+  document.getElementById('loading-status').textContent = msg;
+  document.getElementById('loader-fill').style.width = pct + '%';
+}
+
+// *************************************************
+// YEAR SLIDER
+// *************************************************
+function buildYearSlider() {
+  const slider = document.getElementById('year-slider');
+  noUiSlider.create(slider, {
+    start: [MIN_YEAR, MAX_YEAR],
+    connect: true,
+    step: 1,
+    range: { min: MIN_YEAR, max: MAX_YEAR },
+    tooltips: false
+  });
+  slider.noUiSlider.on('update', function(values) {
+    const y1 = Math.round(values[0]);
+    const y2 = Math.round(values[1]);
+    document.getElementById('year-start').value = y1;
+    document.getElementById('year-end').value = y2;
+  });
+  slider.noUiSlider.on('change', function() {
+    applyFilters();
+  });
+
+  // sync inputs back to slider
+  document.getElementById('year-start').addEventListener('change', function() {
+    let v = Math.max(MIN_YEAR, Math.min(MAX_YEAR, parseInt(this.value) || MIN_YEAR));
+    this.value = v;
+    slider.noUiSlider.set([v, null]);
+    applyFilters();
+  });
+  document.getElementById('year-end').addEventListener('change', function() {
+    let v = Math.max(MIN_YEAR, Math.min(MAX_YEAR, parseInt(this.value) || MAX_YEAR));
+    this.value = v;
+    slider.noUiSlider.set([null, v]);
+    applyFilters();
+  });
+}
+// get the current year range from the slider when applying filters
+function getYearRange() {
+  const slider = document.getElementById('year-slider');
+  const vals = slider.noUiSlider.get();
+  return [Math.round(vals[0]), Math.round(vals[1])];
+}
+
+// *************************************************
+// FILTERS
+// *************************************************
+// grab all chip values that are toggled on for a given filter group
+function getActiveChips(filterType) {
+  return Array.from(document.querySelectorAll(`.chip[data-filter="${filterType}"].active`))
+    .map(c => c.dataset.val);
+}
+
+// runs every time any filter changes -rebuilds filteredData from scratch
+function applyFilters() {
+  const [y1, y2] = getYearRange();
+  // injury filter lives in the legend at the top, not in a chip group
+  const injuries = Array.from(document.querySelectorAll('.legend-item.active')).map(li => li.dataset.injury);
+  const fars = getActiveChips('far');
+  const wxs = getActiveChips('wx');
+  const purposes = getActiveChips('purpose');
+  const cats = getActiveChips('cat');
+  const configs = getActiveChips('config');
+  // filter the full dataset down to whatever matches the current filter combo
+  filteredData = allData.filter(r => {
+    const yr = parseInt(r.EventDate?.substring(0, 4) || '0');
+    if (yr < y1 || yr > y2) return false;
+
+    const inj = r.HighestInjuryLevel || 'Unknown';
+    if (!injuries.includes(inj)) return false;
+
+    // FAR field sometimes has leading zero (091 instead of 91) -normalize it
+    const farRaw = (r.FAR || '').split(',')[0].trim().replace('091', '91').replace('091F', '91');
+    const farMatch = fars.some(f => {
+      if (f === 'OTHER') return !['91','135','121','107','103','137'].includes(farRaw);
+      return farRaw === f;
+    });
+    if (!farMatch) return false;
+
+    // "OTHER" bucket catches anything that doesn't match the named values
+    const wx = r.WeatherCondition || '';
+    const wxMatch = wxs.some(w => {
+      if (w === 'OTHER') return !['VMC','VFR','IMC','IFR'].includes(wx);
+      return wx === w;
+    });
+    if (!wxMatch) return false;
+    // purpose and category fields can have multiple comma-separated values -just check the first one
+    // "OTHER" bucket catches anything that doesn't match the named values
+    const pur = (r.PurposeOfFlight || '').split(',')[0].trim();
+    const purMatch = purposes.some(p => {
+      if (p === 'OTHER') return !['PERS','INST','BUS','AAPL','FERY','EXEC'].includes(pur);
+      return pur === p;
+    });
+    // if purpose is blank, it only matches if "OTHER" is selected -don't include it in the named buckets
+    if (!purMatch) return false;  
+
+    // experimental aircraft are flagged by AmateurBuilt, not category
+    const cat = (r.AirCraftCategory || '').split(',')[0].trim() || 'ATC';
+    const isExperimental = (r.AmateurBuilt || '').toUpperCase() === 'TRUE';
+    const catMatch = cats.some(c => {
+      if (c === 'EXPERIMENTAL') return isExperimental;
+      if (c === 'ATC') return cat === 'ATC';
+      return cat === c;
+    });
+    if (!catMatch) return false;
+
+    // aircraft config: single engine, multi engine
+    const engCount = parseInt(r.NumberOfEngines) || 0;
+    const configMatch = configs.some(c => {
+      if (c === 'SINGLE') return engCount <= 1;
+      if (c === 'MULTI') return engCount >= 2;
+      return false;
+    });
+    if (!configMatch) return false;
+
+    // multi-aircraft toggle -when active, only show multi-aircraft events
+    if (multiAcftActive) {
+      const isMultiAcft = (r.MultiAircraft || '').toUpperCase() === 'TRUE';
+      if (!isMultiAcft) return false;
+    }
+
+    return true;
+  });
+  // update everything based on the new filtered dataset
+  updateStats(filteredData);
+  buildCharts(filteredData);
+  renderMapMode(filteredData);
+  updateInfoBar(filteredData.length, allData.length);
+}
+
+// nuke all filters back to defaults
+function toggleMultiAcft() {
+  multiAcftActive = !multiAcftActive;
+  const btn = document.getElementById('btn-multiacft');
+  if (multiAcftActive) {
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+    btn.style.background = 'rgba(0,212,255,0.15)';
+    btn.style.boxShadow = '0 0 12px rgba(0,212,255,0.3)';
+    // turn on all other filters so nothing is missed
+    document.querySelectorAll('.chip').forEach(c => c.classList.add('active'));
+    document.querySelectorAll('.legend-item').forEach(li => li.classList.add('active'));
+    document.getElementById('year-slider').noUiSlider.set([MIN_YEAR, MAX_YEAR]);
+  } else {
+    btn.style.borderColor = 'rgba(0,212,255,0.4)';
+    btn.style.color = '#8899bb';
+    btn.style.background = 'rgba(0,212,255,0.03)';
+    btn.style.boxShadow = 'none';
+  }
+  applyFilters();
+}
+
+function resetFilters() {
+  document.getElementById('year-slider').noUiSlider.set([MIN_YEAR, MAX_YEAR]);
+  document.querySelectorAll('.chip').forEach(c => c.classList.add('active'));
+  document.querySelectorAll('.legend-item').forEach(li => li.classList.add('active'));
+  multiAcftActive = false;
+  const maBtn = document.getElementById('btn-multiacft');
+  maBtn.style.borderColor = 'rgba(0,212,255,0.4)';
+  maBtn.style.color = '#8899bb';
+  maBtn.style.background = 'rgba(0,212,255,0.03)';
+  maBtn.style.boxShadow = 'none';
+
+  filteredData = [...allData];
+  updateStats(filteredData);
+  buildCharts(filteredData);
+  renderMapMode(filteredData);
+  updateInfoBar(filteredData.length, allData.length);
+}
+
+// fly back to the default CONUS view
+function resetMap() {
+  map.flyTo([39.5, -98.35], 4, { duration: 1.2 });
+  if (currentBasemap === 'sectional') {
+    setBasemap('auto');
+  }
+}
+
+// swap between auto (dark/voyager) and FAA sectional basemap
+function setBasemap(mode) {
+  currentBasemap = mode;
+  document.querySelectorAll('.basemap-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-basemap-' + mode).classList.add('active');
+
+  // clean up all optional basemap layers first
+  map.getContainer().classList.remove('sectional-active');
+  if (map.hasLayer(sectionalLayer)) map.removeLayer(sectionalLayer);
+  if (map.hasLayer(topoLayer)) map.removeLayer(topoLayer);
+  // hide spike map if switching away from it
+  document.getElementById('spike-map').style.display = 'none';
+  document.getElementById('map').style.display = '';
+  spikeViewState = null;
+  map.invalidateSize();
+
+  if (mode === 'auto') {
+    map.options.maxZoom = 19;
+    const z = map.getZoom();
+    if (z >= ZOOM_THRESHOLD) {
+      if (!map.hasLayer(voyagerLayer)) { voyagerLayer.addTo(map); voyagerLayer.bringToBack(); }
+      if (map.hasLayer(darkLayer)) map.removeLayer(darkLayer);
+    } else {
+      if (!map.hasLayer(darkLayer)) { darkLayer.addTo(map); darkLayer.bringToBack(); }
+      if (map.hasLayer(voyagerLayer)) map.removeLayer(voyagerLayer);
+    }
+  } else if (mode === 'sectional') {
+    if (map.hasLayer(darkLayer)) map.removeLayer(darkLayer);
+    if (!map.hasLayer(voyagerLayer)) { voyagerLayer.addTo(map); voyagerLayer.bringToBack(); }
+    sectionalLayer.addTo(map);
+    sectionalLayer.bringToBack();
+    voyagerLayer.bringToBack();
+    map.options.maxZoom = 13;
+    if (map.getZoom() > 13) map.setZoom(13);
+    map.getContainer().classList.add('sectional-active');
+    setTimeout(() => {
+      const container = sectionalLayer.getContainer ? sectionalLayer.getContainer() : null;
+      if (container) container.style.pointerEvents = 'none';
+    }, 500);
+    setMapMode('dots');
+    document.querySelectorAll('.basemap-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-basemap-sectional').classList.add('active');
+  } else if (mode === 'topo') {
+    if (map.hasLayer(darkLayer)) map.removeLayer(darkLayer);
+    if (map.hasLayer(voyagerLayer)) map.removeLayer(voyagerLayer);
+    topoLayer.addTo(map);
+    topoLayer.bringToBack();
+    map.options.maxZoom = 17;
+  } else if (mode === 'spike') {
+    // hide leaflet map, show D3 spike map
+    document.getElementById('map').style.display = 'none';
+    document.getElementById('spike-map').style.display = 'block';
+    renderSpikeMap(filteredData);
+  }
+}
+
+// Chip toggle with double-click isolate
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    chip.classList.toggle('active');
+    applyFilters();
+  });
+
+  chip.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const filter = chip.dataset.filter;
+    const allInGroup = Array.from(document.querySelectorAll(`.chip[data-filter="${filter}"]`));
+    const allActive = allInGroup.filter(c => c.classList.contains('active'));
+    if (allActive.length === 1 && chip.classList.contains('active')) {
+      allInGroup.forEach(c => c.classList.add('active'));
+    } else {
+      allInGroup.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    }
+    applyFilters();
+  });
+});
+
+// Legend toggle with double-click isolate
+document.querySelectorAll('.legend-item').forEach(li => {
+  li.addEventListener('click', () => {
+    li.classList.toggle('active');
+    applyFilters();
+  });
+
+  li.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const allItems = Array.from(document.querySelectorAll('.legend-item'));
+    const allActive = allItems.filter(item => item.classList.contains('active'));
+    if (allActive.length === 1 && li.classList.contains('active')) {
+      allItems.forEach(item => item.classList.add('active'));
+    } else {
+      allItems.forEach(item => item.classList.remove('active'));
+      li.classList.add('active');
+    }
+    applyFilters();
+  });
+});
+
+// *************************************************
+// STATS
+// *************************************************
+function updateStats(data) {
+  const fatal = data.filter(r => r.HighestInjuryLevel === 'Fatal').length;
+  const serious = data.filter(r => r.HighestInjuryLevel === 'Serious').length;
+  const deaths = data.reduce((s, r) => s + (parseInt(r.FatalInjuryCount) || 0), 0);
+
+  document.getElementById('stat-total').textContent = data.length.toLocaleString();
+  document.getElementById('stat-fatal').textContent = fatal.toLocaleString();
+  document.getElementById('stat-serious').textContent = serious.toLocaleString();
+  document.getElementById('stat-deaths').textContent = deaths.toLocaleString();
+
+  buildSparklines(data);
+}
+
+function buildSparklines(data) {
+  // Aggregate by year
+  const byYear = {};
+  data.forEach(r => {
+    const yr = parseInt(r.EventDate?.substring(0, 4) || 0);
+    if (yr < MIN_YEAR || yr > MAX_YEAR) return;
+    if (!byYear[yr]) byYear[yr] = { total: 0, fatal: 0, serious: 0, deaths: 0 };
+    byYear[yr].total++;
+    if (r.HighestInjuryLevel === 'Fatal') byYear[yr].fatal++;
+    if (r.HighestInjuryLevel === 'Serious') byYear[yr].serious++;
+    byYear[yr].deaths += parseInt(r.FatalInjuryCount) || 0;
+  });
+
+  const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+  if (years.length < 2) return;
+
+  function drawSparkline(id, key, color) {
+    const svg = d3.select('#' + id);
+    svg.selectAll('*').remove();
+    const W = 80, H = 20;
+    const vals = years.map(yr => byYear[yr][key]);
+    const x = d3.scaleLinear().domain([0, vals.length - 1]).range([1, W - 1]);
+    const y = d3.scaleLinear().domain([0, d3.max(vals) || 1]).range([H - 1, 1]);
+    const line = d3.line().x((d, i) => x(i)).y(d => y(d)).curve(d3.curveMonotoneX);
+    svg.append('path').datum(vals).attr('d', line).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.2);
+  }
+
+  drawSparkline('spark-total', 'total', '#00d4ff');
+  drawSparkline('spark-fatal', 'fatal', '#ff2d55');
+  drawSparkline('spark-serious', 'serious', '#ff9f0a');
+  drawSparkline('spark-deaths', 'deaths', '#ff2d55');
+}
+
+function updateInfoBar(shown, total) {
+  document.getElementById('info-count').textContent = shown.toLocaleString();
+  document.getElementById('info-total').textContent = total.toLocaleString();
+}
+
+// *************************************************
+// MAP MODES
+// *************************************************
+function clearLayers() {
+  dotsBatchCancelled = true;
+  if (dotsZoomHandler) { map.off('zoomend', dotsZoomHandler); dotsZoomHandler = null; }
+  if (clusterGroup) { map.removeLayer(clusterGroup); clusterGroup = null; }
+  if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+  if (dotsLayer) { map.removeLayer(dotsLayer); dotsLayer = null; }
+  if (dotsRenderer) { dotsRenderer.remove(); dotsRenderer = null; }
+}
+
+function renderMapMode(data) {
+  // skip leaflet rendering when spike map is active - just update the spike map instead
+  if (currentBasemap === 'spike') {
+    if (spikeViewState) {
+      renderCountyView(spikeViewState, data);
+    } else {
+      renderSpikeMap(data);
+    }
+    return;
+  }
+  clearLayers();
+  if (currentMode === 'cluster') renderCluster(data);
+  else if (currentMode === 'heat') renderHeat(data);
+  else if (currentMode === 'dots') renderDots(data);
+  else if (currentMode === 'timeline') renderTimelineYear(animYear);
+  // keep basemap tiles behind markers
+  if (currentBasemap === 'sectional' && map.hasLayer(sectionalLayer)) {
+    sectionalLayer.bringToBack();
+    voyagerLayer.bringToBack();
+  } else if (currentBasemap === 'topo' && map.hasLayer(topoLayer)) {
+    topoLayer.bringToBack();
+  }
+}
+
+function setMapMode(mode) {
+  if (timelineActive) closeTimeline();
+  currentMode = mode;
+  document.querySelectorAll('.map-btn').forEach(b => b.classList.remove('active'));
+  if (mode === 'cluster') document.getElementById('btn-cluster').classList.add('active');
+  if (mode === 'heat') document.getElementById('btn-heat').classList.add('active');
+  if (mode === 'dots') document.getElementById('btn-dots').classList.add('active');
+  // Restore basemap active state
+  const activeBasemap = document.getElementById('btn-basemap-' + currentBasemap);
+  if (activeBasemap) activeBasemap.classList.add('active');
+  renderMapMode(filteredData);
+}
+
+// show/hide loading indicator on the map and lock mode buttons
+function showMapLoading() {
+  document.getElementById('map-loading').style.display = 'block';
+  document.getElementById('map-loading-fill').style.width = '0%';
+  document.querySelectorAll('.map-btn').forEach(b => { b.disabled = true; b.style.opacity = '0.4'; b.style.pointerEvents = 'none'; });
+}
+function hideMapLoading() {
+  document.getElementById('map-loading').style.display = 'none';
+  document.querySelectorAll('.map-btn').forEach(b => { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; });
+}
+
+// CLUSTER - batched with progress bar
+var clusterBuildToken = 0;
+function renderCluster(data) {
+  const myToken = ++clusterBuildToken;
+  showMapLoading();
+
+  clusterGroup = L.markerClusterGroup({
+    chunkedLoading: true,
+    chunkInterval: 100,
+    chunkDelay: 50,
+    maxClusterRadius: 50,
+    iconCreateFunction: function(cluster) {
+      const count = cluster.getChildCount();
+      const markers = cluster.getAllChildMarkers();
+      let worst = '';
+      for (const m of markers) {
+        const inj = m.options.injuryLevel || '';
+        if (inj === 'Fatal') { worst = 'Fatal'; break; }
+        if (inj === 'Serious' && worst !== 'Fatal') worst = 'Serious';
+        else if (inj === 'Minor' && worst !== 'Serious' && worst !== 'Fatal') worst = 'Minor';
+        else if (inj === 'None' && !worst) worst = 'None';
+        else if ((inj === 'Unknown' || inj === '') && !worst) worst = 'Unknown';
+      }
+      if (!worst) worst = 'Unknown';
+      const color = INJURY_COLORS[worst] || '#636366';
+      const size = count > 1000 ? 44 : count > 100 ? 36 : 28;
+      return L.divIcon({
+        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color}22;border:2px solid ${color};display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:${count>999?11:13}px;color:${color};box-shadow:0 0 8px ${color}44">${count > 9999 ? Math.round(count/1000)+'k' : count}</div>`,
+        className: '',
+        iconSize: [size, size],
+        iconAnchor: [size/2, size/2]
+      });
+    }
+  });
+
+  const total = data.length;
+  const batchSize = 10000;
+  let idx = 0;
+
+  function buildBatch() {
+    if (myToken !== clusterBuildToken) return;
+    const end = Math.min(idx + batchSize, total);
+    for (; idx < end; idx++) {
+      const r = data[idx];
+      const lat = parseFloat(r.Latitude);
+      const lng = parseFloat(r.Longitude);
+      if (isNaN(lat) || isNaN(lng)) continue;
+      const inj = r.HighestInjuryLevel || '';
+      const color = INJURY_COLORS[inj] || '#636366';
+      const marker = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: '',
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+          html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:1px solid #111;box-sizing:border-box"></div>`
+        }),
+        injuryLevel: inj,
+      });
+      marker.bindPopup(() => buildPopup(r), { maxWidth: 320 });
+      clusterGroup.addLayer(marker);
+    }
+    document.getElementById('map-loading-fill').style.width = Math.round((idx / total) * 100) + '%';
+
+    if (idx < total) {
+      setTimeout(buildBatch, 10);
+    } else {
+      document.getElementById('map-loading-fill').style.width = '100%';
+      map.addLayer(clusterGroup);
+      if (currentBasemap === 'sectional') sectionalLayer.bringToBack();
+      if (total === 0) {
+        hideMapLoading();
+      } else {
+        // poll until cluster icons appear in the DOM, then hide
+        function waitForClusters() {
+          const icons = document.querySelectorAll('.leaflet-marker-icon');
+          if (icons.length > 0) {
+            hideMapLoading();
+          } else {
+            requestAnimationFrame(waitForClusters);
+          }
+        }
+        requestAnimationFrame(waitForClusters);
+      }
+    }
+  }
+  buildBatch();
+}
+
+// HEAT
+function renderHeat(data) {
+  const points = data.map(r => {
+    const lat = parseFloat(r.Latitude);
+    const lng = parseFloat(r.Longitude);
+    const intensity = r.HighestInjuryLevel === 'Fatal' ? 1.0 :
+                      r.HighestInjuryLevel === 'Serious' ? 0.7 :
+                      r.HighestInjuryLevel === 'Minor' ? 0.4 : 0.2;
+    return [lat, lng, intensity];
+  }).filter(p => !isNaN(p[0]));
+
+  heatLayer = L.heatLayer(points, {
+    radius: 18,
+    blur: 15,
+    maxZoom: 10,
+    gradient: { 0.1: '#30d158', 0.3: '#ffd60a', 0.6: '#ff9f0a', 0.8: '#ff2d55', 1.0: '#ffffff' }
+  });
+  map.addLayer(heatLayer);
+}
+
+// DOTS (all points, no clustering -use canvas renderer)
+function getDotRadius() {
+  const z = map.getZoom();
+  if (z <= 4) return 3;
+  if (z <= 6) return 4;
+  if (z <= 8) return 5;
+  if (z <= 10) return 7;
+  if (z <= 12) return 9;
+  return 11;
+}
+
+var dotsRenderToken = 0;
+function renderDots(data) {
+  dotsBatchCancelled = false;
+  const myToken = ++dotsRenderToken;
+  dotsRenderer = L.canvas({ padding: 0.5 });
+  const renderer = dotsRenderer;
+  dotsLayer = L.layerGroup();
+  const layer = dotsLayer;
+  const markers = [];
+
+  const batchSize = 5000;
+  let i = 0;
+  function addBatch() {
+    if (dotsBatchCancelled || myToken !== dotsRenderToken) return;
+    const end = Math.min(i + batchSize, data.length);
+    for (; i < end; i++) {
+      const r = data[i];
+      const lat = parseFloat(r.Latitude);
+      const lng = parseFloat(r.Longitude);
+      if (isNaN(lat)) continue;
+      const color = INJURY_COLORS[r.HighestInjuryLevel || ''] || '#636366';
+      const m = L.circleMarker([lat, lng], {
+        radius: getDotRadius(),
+        fillColor: color,
+        color: '#111111',
+        weight: 1,
+        fillOpacity: 1.0,
+        opacity: 1.0,
+        renderer,
+        });
+      m.bindPopup(() => buildPopup(r));
+      layer.addLayer(m);
+      markers.push(m);
+    }
+    if (i < data.length) setTimeout(addBatch, 10);
+  }
+  addBatch();
+  map.addLayer(dotsLayer);
+
+  // Remove old zoom listener and add fresh one
+  map.off('zoomend', dotsZoomHandler);
+  dotsZoomHandler = function() {
+    if (currentMode !== 'dots') return;
+    const r = getDotRadius();
+    markers.forEach(m => m.setRadius(r));
+  };
+  map.on('zoomend', dotsZoomHandler);
+}
+
+// *************************************************
+// POPUP
+// *************************************************
+function buildPopup(r) {
+  const inj = r.HighestInjuryLevel || 'Unknown';
+  const color = INJURY_COLORS[inj] || '#636366';
+  const date = r.EventDate ? r.EventDate.substring(0, 10) : 'Unknown';
+  const make = r.Make ? capitalize(r.Make) : '—';
+  const model = r.Model || '—';
+  const city = r.City || '—';
+  const state = r.State || '—';
+  const cause = r.ProbableCause || null;
+  const fatals = parseInt(r.FatalInjuryCount) || 0;
+  const serious = parseInt(r.SeriousInjuryCount) || 0;
+  const minor = parseInt(r.MinorInjuryCount) || 0;
+
+  return `<div class="popup-inner">
+    <div class="popup-ntsb"><a href="https://data.ntsb.gov/Docket/?NTSBNumber=${r.NtsbNo}" target="_blank" style="color:var(--accent);text-decoration:none;letter-spacing:2px;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${r.NtsbNo || '—'} ↗</a></div>
+    <div class="popup-row">
+      <span class="popup-key">DATE</span>
+      <span class="popup-val">${date}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">LOCATION</span>
+      <span class="popup-val">${city}, ${state}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">AIRCRAFT</span>
+      <span class="popup-val">${make} ${model}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">REG</span>
+      <span class="popup-val">${r.N || '—'}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">INJURY</span>
+      <span class="popup-val"><span class="injury-badge" style="background:${color}22;color:${color};border:1px solid ${color}44">${inj}</span></span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">FATAL/SER/MIN</span>
+      <span class="popup-val">${fatals} / ${serious} / ${minor}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">DAMAGE</span>
+      <span class="popup-val">${r.AirCraftDamage?.split(',')[0] || '—'}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">WEATHER</span>
+      <span class="popup-val">${r.WeatherCondition || '—'}</span>
+    </div>
+    <div class="popup-row">
+      <span class="popup-key">FAR</span>
+      <span class="popup-val">Part ${r.FAR?.split(',')[0] || '—'}</span>
+    </div>
+    ${cause ? `<div class="popup-cause"><strong style="color:var(--accent);font-size:9px;letter-spacing:1px">PROBABLE CAUSE:</strong><br>${cause}</div>` : ''}
+    <div style="margin-top:8px;padding-top:6px;border-top:1px solid #0d1220;font-size:9px;color:${r.CoordSource==='original'?'#30d158':r.CoordSource==='airport'?'#00d4ff':'#ff9f0a'}">
+      ● COORDS: ${r.CoordSource==='original'?'GPS/SURVEY':r.CoordSource==='airport'?'AIRPORT ID LOOKUP':r.CoordSource==='corrected_sign'?'GPS/SURVEY (CORRECTED)':'CITY/STATE CENTROID'}
+      ${['city','city_corrected','city_simplemaps'].includes(r.CoordSource) ? '<br><span style="color:#ff9f0a">⚠ APPROXIMATE LOCATION - CITY LEVEL ONLY</span>' : ''}
+    </div>
+  </div>`;
+}
+
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : str;
+}
+
+// *************************************************
+// CHARTS (D3)
+// *************************************************
+function buildCharts(data) {
+  buildYearChart(data);
+  buildMakesChart(data);
+  if (document.getElementById('analytics-drawer').classList.contains('open')) {
+    buildChartsLarge(data);
+  }
+}
+
+function buildYearChart(data) {
+  const svg = d3.select('#year-chart');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('year-chart').parentElement;
+  const W = container.clientWidth || 280;
+  const H = 100;
+  const margin = { top: 8, right: 8, bottom: 20, left: 32 };
+  const w = W - margin.left - margin.right;
+  const h = H - margin.top - margin.bottom;
+
+  svg.attr('width', W).attr('height', H);
+
+  const yearCounts = d3.rollup(data, v => v.length, d => parseInt(d.EventDate?.substring(0, 4) || 0));
+  const yearData = Array.from(yearCounts, ([yr, cnt]) => ({ yr, cnt }))
+    .filter(d => d.yr >= MIN_YEAR && d.yr <= MAX_YEAR)
+    .sort((a, b) => a.yr - b.yr);
+
+  if (yearData.length === 0) return;
+  const xMin = yearData[0].yr;
+  const xMax = yearData[yearData.length - 1].yr;
+
+  const x = d3.scaleLinear().domain([xMin, xMax]).range([0, w]);
+  const y = d3.scaleLinear().domain([0, d3.max(yearData, d => d.cnt) || 1]).range([h, 0]);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Area
+  const area = d3.area()
+    .x(d => x(d.yr))
+    .y0(h)
+    .y1(d => y(d.cnt))
+    .curve(d3.curveMonotoneX);
+
+  const line = d3.line()
+    .x(d => x(d.yr))
+    .y(d => y(d.cnt))
+    .curve(d3.curveMonotoneX);
+
+  g.append('defs').append('linearGradient')
+    .attr('id', 'area-grad')
+    .attr('x1', '0').attr('y1', '0').attr('x2', '0').attr('y2', '1')
+    .selectAll('stop')
+    .data([
+      { offset: '0%', color: 'rgba(0,212,255,0.35)' },
+      { offset: '100%', color: 'rgba(0,212,255,0.02)' }
+    ])
+    .join('stop')
+    .attr('offset', d => d.offset)
+    .attr('stop-color', d => d.color);
+
+  g.append('path').datum(yearData).attr('d', area).attr('fill', 'url(#area-grad)');
+  g.append('path').datum(yearData).attr('d', line).attr('fill', 'none').attr('stroke', '#00d4ff').attr('stroke-width', 1.5);
+
+  // X axis - auto ticks based on range
+  const span = xMax - xMin;
+  const tickStep = span > 30 ? 10 : span > 15 ? 5 : span > 5 ? 2 : 1;
+  const tickVals = d3.range(Math.ceil(xMin / tickStep) * tickStep, xMax + 1, tickStep);
+  const xAxis = d3.axisBottom(x).tickValues(tickVals).tickFormat(d3.format('d')).tickSize(3);
+  g.append('g').attr('transform', `translate(0,${h})`).call(xAxis)
+    .selectAll('text').attr('fill', '#c0ccee').attr('font-size', '11px');
+  g.select('.domain').attr('stroke', '#1a2340');
+  g.selectAll('.tick line').attr('stroke', '#1a2340');
+
+  // Y axis
+  g.append('g').call(d3.axisLeft(y).ticks(3).tickFormat(d => d >= 1000 ? (d/1000).toFixed(1) + 'k' : d).tickSize(3))
+    .selectAll('text').attr('fill', '#c0ccee').attr('font-size', '11px');
+}
+
+function buildMakesChart(data) {
+  const svg = d3.select('#makes-chart');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('makes-chart').parentElement;
+  const W = container.clientWidth || 280;
+  const H = 220;
+  const margin = { top: 4, right: 52, bottom: 4, left: 78 };
+  const w = W - margin.left - margin.right;
+  const h = H - margin.top - margin.bottom;
+
+  svg.attr('width', W).attr('height', H);
+
+  const makeCounts = d3.rollup(data, v => v.length, d => (d.Make || 'UNKNOWN').toUpperCase().trim());
+  const top10 = Array.from(makeCounts, ([make, cnt]) => ({ make, cnt }))
+    .sort((a, b) => b.cnt - a.cnt)
+    .slice(0, 10);
+
+  const x = d3.scaleLinear().domain([0, top10[0]?.cnt || 1]).range([0, w]);
+  const y = d3.scaleBand().domain(top10.map(d => d.make)).range([0, h]).padding(0.25);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  g.selectAll('rect')
+    .data(top10)
+    .join('rect')
+    .attr('y', d => y(d.make))
+    .attr('width', d => Math.max(x(d.cnt), 2))
+    .attr('height', y.bandwidth())
+    .attr('fill', (d, i) => d3.interpolatePlasma(0.3 + i * 0.07))
+    .attr('rx', 2);
+
+  // Make name -left of bar
+  g.selectAll('.make-label')
+    .data(top10)
+    .join('text')
+    .attr('class', 'make-label')
+    .attr('x', -6)
+    .attr('y', d => y(d.make) + y.bandwidth() / 2)
+    .attr('dy', '0.35em')
+    .attr('text-anchor', 'end')
+    .attr('fill', '#c0ccee')
+    .attr('font-size', '11px')
+    .text(d => d.make.length > 9 ? d.make.substring(0, 9) + '…' : d.make);
+
+  // Count -right of bar
+  g.selectAll('.count-label')
+    .data(top10)
+    .join('text')
+    .attr('class', 'count-label')
+    .attr('x', d => x(d.cnt) + 5)
+    .attr('y', d => y(d.make) + y.bandwidth() / 2)
+    .attr('dy', '0.35em')
+    .attr('text-anchor', 'start')
+    .attr('fill', '#e0e8ff')
+    .attr('font-size', '10px')
+    .text(d => d.cnt.toLocaleString());
+}
+
+// ***************************************************
+// ANALYTICS DRAWER
+// ***************************************************
+function toggleAnalytics() {
+  const drawer = document.getElementById('analytics-drawer');
+  drawer.classList.toggle('open');
+  if (drawer.classList.contains('open')) {
+    buildChartsLarge(filteredData);
+  }
+}
+
+function buildChartsLarge(data) {
+  buildChoropleth(data);
+  buildYearChartLarge(data);
+  buildMakesChartLarge(data);
+  buildDonutChart(data);
+}
+
+function buildYearChartLarge(data) {
+  const svg = d3.select('#year-chart-lg');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('year-chart-lg').parentElement;
+  const W = container.clientWidth || 500;
+  const H = 280;
+  const margin = { top: 16, right: 16, bottom: 32, left: 48 };
+  const w = W - margin.left - margin.right;
+  const h = H - margin.top - margin.bottom;
+
+  svg.attr('width', W).attr('height', H);
+
+  const yearCounts = d3.rollup(data, v => v.length, d => parseInt(d.EventDate?.substring(0, 4) || 0));
+  const yearData = Array.from(yearCounts, ([yr, cnt]) => ({ yr, cnt }))
+    .filter(d => d.yr >= MIN_YEAR && d.yr <= MAX_YEAR)
+    .sort((a, b) => a.yr - b.yr);
+
+  if (yearData.length === 0) return;
+  const xMin = yearData[0].yr;
+  const xMax = yearData[yearData.length - 1].yr;
+
+  const x = d3.scaleLinear().domain([xMin, xMax]).range([0, w]);
+  const y = d3.scaleLinear().domain([0, d3.max(yearData, d => d.cnt) || 1]).range([h, 0]);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Grid lines
+  g.append('g').attr('class', 'grid')
+    .selectAll('line')
+    .data(y.ticks(5))
+    .join('line')
+    .attr('x1', 0).attr('x2', w)
+    .attr('y1', d => y(d)).attr('y2', d => y(d))
+    .attr('stroke', '#1a2340').attr('stroke-dasharray', '2,3');
+
+  const area = d3.area()
+    .x(d => x(d.yr))
+    .y0(h)
+    .y1(d => y(d.cnt))
+    .curve(d3.curveMonotoneX);
+
+  const line = d3.line()
+    .x(d => x(d.yr))
+    .y(d => y(d.cnt))
+    .curve(d3.curveMonotoneX);
+
+  g.append('defs').append('linearGradient')
+    .attr('id', 'area-grad-lg')
+    .attr('x1', '0').attr('y1', '0').attr('x2', '0').attr('y2', '1')
+    .selectAll('stop')
+    .data([
+      { offset: '0%', color: 'rgba(0,212,255,0.35)' },
+      { offset: '100%', color: 'rgba(0,212,255,0.02)' }
+    ])
+    .join('stop')
+    .attr('offset', d => d.offset)
+    .attr('stop-color', d => d.color);
+
+  g.append('path').datum(yearData).attr('d', area).attr('fill', 'url(#area-grad-lg)');
+  g.append('path').datum(yearData).attr('d', line).attr('fill', 'none').attr('stroke', '#00d4ff').attr('stroke-width', 2);
+
+  // X axis - auto ticks based on range
+  const span = xMax - xMin;
+  const tickStep = span > 30 ? 5 : span > 15 ? 2 : 1;
+  const tickVals = d3.range(Math.ceil(xMin / tickStep) * tickStep, xMax + 1, tickStep);
+  const xAxis = d3.axisBottom(x)
+    .tickValues(tickVals)
+    .tickFormat(d3.format('d')).tickSize(5);
+  g.append('g').attr('transform', `translate(0,${h})`).call(xAxis)
+    .selectAll('text').attr('fill', '#c0ccee').attr('font-size', '11px');
+  g.select('.domain').attr('stroke', '#1a2340');
+  g.selectAll('.tick line').attr('stroke', '#1a2340');
+
+  // Y axis -more ticks
+  g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(d => d >= 1000 ? (d/1000).toFixed(1) + 'k' : d).tickSize(5))
+    .selectAll('text').attr('fill', '#c0ccee').attr('font-size', '11px');
+}
+
+function buildMakesChartLarge(data) {
+  const svg = d3.select('#makes-chart-lg');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('makes-chart-lg').parentElement;
+  const W = container.clientWidth || 500;
+  const H = 420;
+  const margin = { top: 8, right: 64, bottom: 8, left: 100 };
+  const w = W - margin.left - margin.right;
+  const h = H - margin.top - margin.bottom;
+
+  svg.attr('width', W).attr('height', H);
+
+  const makeCounts = d3.rollup(data, v => v.length, d => (d.Make || 'UNKNOWN').toUpperCase().trim());
+  const top10 = Array.from(makeCounts, ([make, cnt]) => ({ make, cnt }))
+    .sort((a, b) => b.cnt - a.cnt)
+    .slice(0, 10);
+
+  const x = d3.scaleLinear().domain([0, top10[0]?.cnt || 1]).range([0, w]);
+  const y = d3.scaleBand().domain(top10.map(d => d.make)).range([0, h]).padding(0.2);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Grid lines
+  g.append('g').attr('class', 'grid')
+    .selectAll('line')
+    .data(x.ticks(5))
+    .join('line')
+    .attr('x1', d => x(d)).attr('x2', d => x(d))
+    .attr('y1', 0).attr('y2', h)
+    .attr('stroke', '#1a2340').attr('stroke-dasharray', '2,3');
+
+  g.selectAll('rect')
+    .data(top10)
+    .join('rect')
+    .attr('y', d => y(d.make))
+    .attr('width', d => Math.max(x(d.cnt), 2))
+    .attr('height', y.bandwidth())
+    .attr('fill', (d, i) => d3.interpolatePlasma(0.3 + i * 0.07))
+    .attr('rx', 3);
+
+  // Full make names -more room in large view
+  g.selectAll('.make-label')
+    .data(top10)
+    .join('text')
+    .attr('class', 'make-label')
+    .attr('x', -8)
+    .attr('y', d => y(d.make) + y.bandwidth() / 2)
+    .attr('dy', '0.35em')
+    .attr('text-anchor', 'end')
+    .attr('fill', '#c0ccee')
+    .attr('font-size', '13px')
+    .text(d => d.make.length > 14 ? d.make.substring(0, 14) + '…' : d.make);
+
+  // Count labels
+  g.selectAll('.count-label')
+    .data(top10)
+    .join('text')
+    .attr('class', 'count-label')
+    .attr('x', d => x(d.cnt) + 8)
+    .attr('y', d => y(d.make) + y.bandwidth() / 2)
+    .attr('dy', '0.35em')
+    .attr('text-anchor', 'start')
+    .attr('fill', '#e0e8ff')
+    .attr('font-size', '13px')
+    .text(d => d.cnt.toLocaleString());
+}
+
+// DONUT CHART
+function buildDonutChart(data) {
+  const svg = d3.select('#donut-lg');
+  svg.selectAll('*').remove();
+
+  const container = document.getElementById('donut-lg').parentElement;
+  const W = container.clientWidth || 500;
+  const H = 380;
+  const radius = 150;
+  const innerRadius = radius * 0.55;
+
+  svg.attr('width', W).attr('height', H);
+  const g = svg.append('g').attr('transform', `translate(${W/2},${radius + 10})`);
+
+  // Count by injury level
+  const levels = ['Fatal', 'Serious', 'Minor', 'None', 'Unknown'];
+  const counts = levels.map(level => ({
+    level,
+    count: data.filter(r => (r.HighestInjuryLevel || 'Unknown') === level).length
+  })).filter(d => d.count > 0);
+
+  const total = data.length;
+  const colors = { Fatal: '#c4243f', Serious: '#c47a2a', Minor: '#b8a030', None: '#2a9e4a', Unknown: '#4a4e57' };
+
+  const pie = d3.pie().value(d => d.count).sort(null);
+  const arc = d3.arc().innerRadius(innerRadius).outerRadius(radius - 2);
+
+  // Segments
+  g.selectAll('path')
+    .data(pie(counts))
+    .join('path')
+    .attr('d', arc)
+    .attr('fill', d => colors[d.data.level])
+    .attr('stroke', '#0a0e1a')
+    .attr('stroke-width', 1.5);
+
+  // Labels on segments
+  const labelArc = d3.arc().innerRadius(innerRadius + (radius - innerRadius) * 0.55).outerRadius(innerRadius + (radius - innerRadius) * 0.55);
+  g.selectAll('text.seg-label')
+    .data(pie(counts))
+    .join('text')
+    .attr('class', 'seg-label')
+    .attr('transform', d => `translate(${labelArc.centroid(d)})`)
+    .attr('text-anchor', 'middle')
+    .attr('dy', '0.35em')
+    .attr('fill', '#e0e8ff')
+    .attr('font-size', d => (d.data.count / total) > 0.05 ? '13px' : '0px')
+    .attr('font-family', 'Share Tech Mono, monospace')
+    .text(d => ((d.data.count / total) * 100).toFixed(1) + '%');
+
+  // Center text -total count
+  g.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dy', '-0.2em')
+    .attr('fill', 'var(--accent)')
+    .style('font-family', "'Orbitron', monospace")
+    .style('font-size', '20px')
+    .style('font-weight', '700')
+    .text(total.toLocaleString());
+
+  g.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dy', '1.2em')
+    .attr('fill', '#8899bb')
+    .style('font-family', "'Orbitron', monospace")
+    .style('font-size', '12px')
+    .style('font-weight', '700')
+    .text('TOTAL');
+
+  // Legend below -single row
+  const legendSpacing = 75;
+  const legendTotalW = counts.length * legendSpacing;
+  const legendY = H - 22;
+  counts.forEach((d, i) => {
+    const lx = (W - legendTotalW) / 2 + i * legendSpacing;
+    svg.append('rect').attr('x', lx).attr('y', legendY).attr('width', 10).attr('height', 10).attr('fill', colors[d.level]).attr('rx', 2);
+    svg.append('text').attr('x', lx + 14).attr('y', legendY + 10).attr('fill', '#8899bb').attr('font-size', '12px').attr('font-family', 'Share Tech Mono, monospace').text(d.level);
+  });
+}
+
+// SPIKE MAP - full screen D3 state spike visualization
+function renderSpikeMap(data) {
+  const svg = d3.select('#spike-svg');
+  svg.selectAll('*').remove();
+  // clean up county view canvas if present
+  const oldCanvas = document.getElementById('spike-map').querySelector('canvas');
+  if (oldCanvas) oldCanvas.remove();
+  if (!usTopoData) return;
+
+  const container = document.getElementById('spike-map');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+
+  svg.attr('width', W).attr('height', H);
+
+  const states = topojson.feature(usTopoData, usTopoData.objects.states);
+  const projection = d3.geoAlbersUsa().fitSize([W - 40, H - 80], states);
+  const path = d3.geoPath().projection(projection);
+
+  // compute per-state stats
+  const stateCounts = d3.rollup(data, v => v.length, d => (d.State || '').trim());
+  const stateFatals = d3.rollup(data, v => v.filter(r => r.HighestInjuryLevel === 'Fatal').length, d => (d.State || '').trim());
+  const stateDeaths = d3.rollup(data, v => v.reduce((s, r) => s + (parseInt(r.FatalInjuryCount) || 0), 0), d => (d.State || '').trim());
+  const stateUnlocated = d3.rollup(data, v => v.filter(r => (r.CoordSource || '') === 'state_centroid').length, d => (d.State || '').trim());
+  const maxCount = d3.max(Array.from(stateCounts.values())) || 1;
+  const totalAccidents = data.length;
+
+  const spikeHeight = d3.scaleLinear().domain([0, maxCount]).range([2, H * 0.35]);
+  const color = d3.scaleLinear()
+    .domain([0, maxCount * 0.3, maxCount])
+    .range(['#0a2463', '#00d4ff', '#ff2d55']);
+
+  const g = svg.append('g').attr('transform', 'translate(20, 40)');
+
+  // draw state outlines with hover
+  const tooltip = d3.select('#choro-tooltip');
+
+  g.selectAll('path.state')
+    .data(states.features)
+    .join('path')
+    .attr('class', 'state')
+    .attr('d', path)
+    .attr('fill', '#182035')
+    .attr('stroke', '#334466')
+    .attr('stroke-width', 0.8)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, d) {
+      d3.select(this).attr('fill', '#1e2a45').attr('stroke', '#00d4ff').attr('stroke-width', 1.5);
+      const name = d.properties.name;
+      const cnt = stateCounts.get(name) || 0;
+      const fatals = stateFatals.get(name) || 0;
+      const deaths = stateDeaths.get(name) || 0;
+      const unloc = stateUnlocated.get(name) || 0;
+      const fatalRate = cnt > 0 ? ((fatals / cnt) * 100).toFixed(1) : '0';
+      const pct = totalAccidents > 0 ? ((cnt / totalAccidents) * 100).toFixed(1) : '0';
+      tooltip.html(
+        `<div class="tt-state">${name}</div>` +
+        `<div class="tt-count">${cnt.toLocaleString()} accidents (${pct}%)</div>` +
+        `<div class="tt-count">${fatals.toLocaleString()} fatal (${fatalRate}% rate)</div>` +
+        `<div class="tt-count">${deaths.toLocaleString()} fatalities</div>` +
+        (unloc > 0 ? `<div class="tt-pct">${unloc.toLocaleString()} unlocated</div>` : '')
+      ).classed('visible', true);
+    })
+    .on('mousemove', function(event) {
+      const tipX = event.clientX > window.innerWidth - 250 ? event.clientX - 220 : event.clientX + 14;
+      tooltip.style('left', tipX + 'px').style('top', (event.clientY - 10) + 'px');
+    })
+    .on('mouseout', function() {
+      d3.select(this).attr('fill', '#182035').attr('stroke', '#334466').attr('stroke-width', 0.8);
+      tooltip.classed('visible', false);
+    })
+    .on('click', function(event, d) {
+      tooltip.classed('visible', false);
+      const stateName = d.properties.name;
+      if (STATE_FIPS[stateName]) {
+        spikeViewState = stateName;
+        renderCountyView(stateName, filteredData);
+      }
+    });
+
+  // state borders
+  g.append('path')
+    .datum(topojson.mesh(usTopoData, usTopoData.objects.states, (a, b) => a !== b))
+    .attr('d', path)
+    .attr('fill', 'none')
+    .attr('stroke', '#334466')
+    .attr('stroke-width', 0.8);
+
+  // build spike data with centroids
+  const spikeData = [];
+  states.features.forEach(feature => {
+    const name = feature.properties.name;
+    const count = stateCounts.get(name) || 0;
+    if (count === 0) return;
+    const centroid = path.centroid(feature);
+    if (isNaN(centroid[0])) return;
+    spikeData.push({ name, count, x: centroid[0], y: centroid[1] });
+  });
+
+  // sort small first so big spikes render on top
+  spikeData.sort((a, b) => a.count - b.count);
+
+  // draw spikes
+  spikeData.forEach(d => {
+    const h = spikeHeight(d.count);
+    const w = 5;
+    const c = color(d.count);
+
+    g.append('path')
+      .attr('d', `M${d.x},${d.y} L${d.x - w/2},${d.y} L${d.x},${d.y - h} L${d.x + w/2},${d.y} Z`)
+      .attr('fill', c)
+      .attr('opacity', 0.85)
+      .style('filter', `drop-shadow(0 0 4px ${c})`)
+      .style('cursor', 'pointer')
+      .on('mouseover', function(event) {
+        d3.select(this).attr('opacity', 1);
+        const fatals = stateFatals.get(d.name) || 0;
+        const deaths = stateDeaths.get(d.name) || 0;
+        const unloc = stateUnlocated.get(d.name) || 0;
+        const fatalRate = d.count > 0 ? ((fatals / d.count) * 100).toFixed(1) : '0';
+        const pct = totalAccidents > 0 ? ((d.count / totalAccidents) * 100).toFixed(1) : '0';
+        tooltip.html(
+          `<div class="tt-state">${d.name}</div>` +
+          `<div class="tt-count">${d.count.toLocaleString()} accidents (${pct}%)</div>` +
+          `<div class="tt-count">${fatals.toLocaleString()} fatal (${fatalRate}% rate)</div>` +
+          `<div class="tt-count">${deaths.toLocaleString()} fatalities</div>` +
+          (unloc > 0 ? `<div class="tt-pct">${unloc.toLocaleString()} unlocated</div>` : '')
+          ).classed('visible', true);
+      })
+      .on('mousemove', function(event) {
+        const tipX = event.clientX > window.innerWidth - 250 ? event.clientX - 220 : event.clientX + 14;
+      tooltip.style('left', tipX + 'px').style('top', (event.clientY - 10) + 'px');
+      })
+      .on('mouseout', function() {
+        d3.select(this).attr('opacity', 0.85);
+        tooltip.classed('visible', false);
+      });
+  });
+
+  // labels for top states
+  spikeData.sort((a, b) => b.count - a.count).slice(0, 10).forEach(d => {
+    const h = spikeHeight(d.count);
+    g.append('text')
+      .attr('x', d.x)
+      .attr('y', d.y - h - 6)
+      .attr('text-anchor', 'middle')
+      .attr('fill', '#e0e8ff')
+      .attr('font-family', "'Share Tech Mono', monospace")
+      .attr('font-size', '10px')
+      .text(d.name + ' ' + d.count.toLocaleString());
+  });
+
+  // title - just above the map
+  svg.append('text')
+    .attr('x', W / 2)
+    .attr('y', H * 0.12)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#00d4ff')
+    .style('font-family', "'Orbitron', monospace")
+    .attr('font-size', '20px')
+    .attr('font-weight', '700')
+    .attr('letter-spacing', '4px')
+    .text('ACCIDENTS BY STATE');
+
+  svg.append('text')
+    .attr('x', W / 2)
+    .attr('y', H * 0.12 + 18)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#6e7a99')
+    .style('font-family', "'Share Tech Mono', monospace")
+    .attr('font-size', '11px')
+    .attr('letter-spacing', '1px')
+    .text('CLICK A STATE FOR COUNTY VIEW');
+}
+
+// COUNTY DRILL-DOWN - renders when you click a state on the spike map
+function renderCountyView(stateName, data) {
+  const svg = d3.select('#spike-svg');
+  svg.selectAll('*').remove();
+  if (!usCountyData) return;
+
+  const container = document.getElementById('spike-map');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+  svg.attr('width', W).attr('height', H);
+
+  const fips = STATE_FIPS[stateName];
+  const tooltip = d3.select('#choro-tooltip');
+
+  // filter counties for this state
+  const allCounties = topojson.feature(usCountyData, usCountyData.objects.counties);
+  const stateCounties = {
+    type: 'FeatureCollection',
+    features: allCounties.features.filter(f => f.id && f.id.substring(0, 2) === fips)
+  };
+
+  // filter accidents for this state
+  const stateData = data.filter(r => (r.State || '').trim() === stateName);
+
+  // count per county using pre-computed CountyFIPS from CSV - no geometry needed
+  const countyCounts = {};
+  const countyNames = {};
+  stateCounties.features.forEach(f => {
+    countyCounts[f.id] = 0;
+    countyNames[f.id] = f.properties.name;
+  });
+  stateData.forEach(r => {
+    const cid = (r.CountyFIPS || '').trim();
+    if (cid && countyCounts[cid] !== undefined) {
+      countyCounts[cid]++;
+    }
+  });
+  const stateUnlocCount = stateData.filter(r => (r.CoordSource || '') === 'state_centroid').length;
+
+  const maxCount = Math.max(1, d3.max(Object.values(countyCounts)));
+
+  // color scale for counties
+  const palette = ['#0a2463', '#1e3a8a', '#7c3aed', '#c026d3', '#f43f5e', '#fbbf24'];
+  const thresholds = [1, Math.round(maxCount*0.1), Math.round(maxCount*0.25), Math.round(maxCount*0.5), Math.round(maxCount*0.75)];
+  const color = d3.scaleThreshold().domain(thresholds).range(palette);
+
+  // fit projection to this state
+  const projection = d3.geoAlbersUsa().fitSize([W - 60, H - 100], stateCounties);
+  const path = d3.geoPath().projection(projection);
+
+  const g = svg.append('g').attr('transform', 'translate(30, 60)');
+
+  // draw county choropleth
+  g.selectAll('path.county')
+    .data(stateCounties.features)
+    .join('path')
+    .attr('class', 'county')
+    .attr('d', path)
+    .attr('fill', f => {
+      const cnt = countyCounts[f.id] || 0;
+      return cnt === 0 ? '#0d1220' : color(cnt);
+    })
+    .attr('stroke', '#334466')
+    .attr('stroke-width', 0.5)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, f) {
+      d3.select(this).attr('stroke', '#00d4ff').attr('stroke-width', 1.5);
+      const cnt = countyCounts[f.id] || 0;
+      const approx = stateUnlocCount > 0 ? '~' : '';
+      tooltip.html(
+        `<div class="tt-state">${f.properties.name} County</div>` +
+        `<div class="tt-count">${approx}${cnt.toLocaleString()} accidents</div>`
+      ).classed('visible', true);
+    })
+    .on('mousemove', function(event) {
+      const tipX = event.clientX > window.innerWidth - 250 ? event.clientX - 220 : event.clientX + 14;
+      tooltip.style('left', tipX + 'px').style('top', (event.clientY - 10) + 'px');
+    })
+    .on('mouseout', function() {
+      d3.select(this).attr('stroke', '#334466').attr('stroke-width', 0.5);
+      tooltip.classed('visible', false);
+    });
+
+  // render dots on a canvas behind the SVG for performance
+  const INJURY_COLORS_MAP = { 'Fatal': '#ff2d55', 'Serious': '#ff9f0a', 'Minor': '#ffd60a', 'None': '#30d158', 'Unknown': '#a0a0b0', '': '#a0a0b0' };
+
+  // remove old canvas if any
+  const existingCanvas = container.querySelector('canvas');
+  if (existingCanvas) existingCanvas.remove();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;';
+  container.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+
+  // clip to state boundary on canvas
+  ctx.save();
+  ctx.translate(30, 60);
+  const stateMerge = topojson.merge(usCountyData, usCountyData.objects.counties.geometries.filter(c => (c.id + '').substring(0, 2) === fips));
+  const clipPath2d = new Path2D(path(stateMerge));
+  ctx.clip(clipPath2d);
+
+  // draw dots
+  stateData.forEach(r => {
+    const lat = parseFloat(r.Latitude);
+    const lng = parseFloat(r.Longitude);
+    if (isNaN(lat)) return;
+    const pt = projection([lng, lat]);
+    if (!pt) return;
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = INJURY_COLORS_MAP[r.HighestInjuryLevel || ''] || '#a0a0b0';
+    ctx.beginPath();
+    ctx.arc(pt[0], pt[1], 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 0.2;
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  // county outlines on top of everything so borders are always visible
+  g.append('path')
+    .datum(topojson.mesh(usCountyData, usCountyData.objects.counties, (a, b) => {
+      return a !== b && (a.id + '').substring(0, 2) === fips;
+    }))
+    .attr('d', path)
+    .attr('fill', 'none')
+    .attr('stroke', 'rgba(200,210,230,0.35)')
+    .attr('stroke-width', 0.8)
+    .style('pointer-events', 'none');
+
+  // title
+  svg.append('text')
+    .attr('x', W / 2)
+    .attr('y', 20)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#00d4ff')
+    .style('font-family', "'Orbitron', monospace")
+    .attr('font-size', '18px')
+    .attr('font-weight', '700')
+    .attr('letter-spacing', '3px')
+    .text((() => {
+      const unloc = stateData.filter(r => (r.CoordSource || '') === 'state_centroid').length;
+      const located = stateData.length - unloc;
+      return stateName.toUpperCase() + ' - ' + stateData.length.toLocaleString() + ' ACCIDENTS' + (unloc > 0 ? ' (' + unloc.toLocaleString() + ' UNLOCATED)' : '');
+    })());
+
+  // back button - styled box
+  const backG = svg.append('g')
+    .attr('cursor', 'pointer')
+    .on('click', function() {
+      spikeViewState = null;
+      renderSpikeMap(filteredData);
+    });
+  backG.append('rect')
+    .attr('x', 10)
+    .attr('y', 8)
+    .attr('width', 90)
+    .attr('height', 28)
+    .attr('rx', 4)
+    .attr('fill', 'rgba(0,212,255,0.08)')
+    .attr('stroke', 'rgba(0,212,255,0.5)')
+    .attr('stroke-width', 1.5);
+  backG.append('text')
+    .attr('x', 55)
+    .attr('y', 27)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#00d4ff')
+    .style('font-family', "'Orbitron', monospace")
+    .attr('font-size', '12px')
+    .attr('font-weight', '700')
+    .attr('letter-spacing', '1.5px')
+    .text('< BACK');
+  backG.on('mouseover', function() {
+    backG.select('rect').attr('fill', 'rgba(0,212,255,0.2)').attr('stroke', '#00d4ff');
+  }).on('mouseout', function() {
+    backG.select('rect').attr('fill', 'rgba(0,212,255,0.08)').attr('stroke', 'rgba(0,212,255,0.5)');
+  });
+}
+
+// CHOROPLETH
+var usTopoData = null;
+var usCountyData = null;
+function loadTopoData() {
+  return Promise.all([
+    fetch('states-10m.json').then(r => r.json()),
+    fetch('counties-10m.json').then(r => r.json())
+  ]).then(([stateData, countyData]) => {
+    usTopoData = stateData;
+    usCountyData = countyData;
+  });
+}
+
+function buildChoropleth(data) {
+  const svg = d3.select('#choropleth-lg');
+  svg.selectAll('*').remove();
+  if (!usTopoData) return;
+
+  const container = document.getElementById('choropleth-lg').parentElement;
+  const W = container.clientWidth || 500;
+  const H = 340;
+
+  svg.attr('width', W).attr('height', H);
+
+  const states = topojson.feature(usTopoData, usTopoData.objects.states);
+  const projection = d3.geoAlbersUsa().fitSize([W - 20, H - 50], states);
+  const path = d3.geoPath().projection(projection);
+
+  // Count accidents per state
+  const stateCounts = d3.rollup(data, v => v.length, d => (d.State || '').trim());
+  const maxCount = d3.max(Array.from(stateCounts.values())) || 1;
+
+  const palette = ['#0a2463', '#1e3a8a', '#7c3aed', '#c026d3', '#f43f5e', '#fbbf24'];
+  const thresholds = [500, 1000, 3000, 6000, 10000];
+  const color = d3.scaleThreshold()
+    .domain(thresholds)
+    .range(palette);
+
+  const g = svg.append('g').attr('transform', 'translate(10, 5)');
+
+  // Draw states
+  const totalAccidents = data.length;
+  const tooltip = d3.select('#choro-tooltip');
+
+  g.selectAll('path')
+    .data(states.features)
+    .join('path')
+    .attr('d', path)
+    .attr('fill', d => {
+      const cnt = stateCounts.get(d.properties.name) || 0;
+      return cnt === 0 ? '#1a2340' : color(cnt);
+    })
+    .attr('stroke', '#0a0e1a')
+    .attr('stroke-width', 0.5)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, d) {
+      d3.select(this).attr('stroke', '#00d4ff').attr('stroke-width', 1.5);
+      const cnt = stateCounts.get(d.properties.name) || 0;
+      const pct = totalAccidents > 0 ? ((cnt / totalAccidents) * 100).toFixed(1) : 0;
+      tooltip.html(
+        `<div class="tt-state">${d.properties.name}</div>` +
+        `<div class="tt-count">${cnt.toLocaleString()} accidents</div>` +
+        `<div class="tt-pct">${pct}% of filtered total</div>`
+      ).classed('visible', true);
+    })
+    .on('mousemove', function(event) {
+      const tipX = event.clientX > window.innerWidth - 250 ? event.clientX - 220 : event.clientX + 14;
+      tooltip.style('left', tipX + 'px').style('top', (event.clientY - 10) + 'px');
+    })
+    .on('mouseout', function() {
+      d3.select(this).attr('stroke', '#0a0e1a').attr('stroke-width', 0.5);
+      tooltip.classed('visible', false);
+    });
+
+  // State borders
+  g.append('path')
+    .datum(topojson.mesh(usTopoData, usTopoData.objects.states, (a, b) => a !== b))
+    .attr('d', path)
+    .attr('fill', 'none')
+    .attr('stroke', '#0a0e1a')
+    .attr('stroke-width', 0.5);
+
+  // Legend -fixed buckets
+  const bucketLabels = ['0', '500', '1k', '3k', '6k', '10k'];
+  const bucketW = 28;
+  const legendX = W - (palette.length * bucketW) - 20;
+  const legendY = H - 28;
+
+  palette.forEach((c, i) => {
+    svg.append('rect')
+      .attr('x', legendX + i * bucketW).attr('y', legendY)
+      .attr('width', bucketW - 2).attr('height', 10)
+      .attr('fill', c).attr('rx', 1);
+    svg.append('text')
+      .attr('x', legendX + i * bucketW + (bucketW - 2) / 2).attr('y', legendY + 20)
+      .attr('fill', '#8899bb').attr('font-size', '8px')
+      .attr('font-family', 'Share Tech Mono, monospace')
+      .attr('text-anchor', 'middle')
+      .text(bucketLabels[i]);
+  });
+}
+
+// ----------------------
+// TIMELINE ANIMATION
+// -----------------------
+let timelineMode = 'cluster';
+
+function toggleTimeline() {
+  timelineActive = !timelineActive;
+  const bar = document.getElementById('timeline-bar');
+  const btn = document.getElementById('btn-timeline');
+  if (timelineActive) {
+    bar.classList.add('visible');
+    btn.classList.add('active');
+    timelineMode = (currentMode === 'timeline' || !currentMode) ? 'cluster' : currentMode;
+    currentMode = 'timeline';
+    animYear = MIN_YEAR;
+    renderTimelineYear(animYear);
+  } else {
+    closeTimeline();
+  }
+}
+
+function closeTimeline() {
+  timelineActive = false;
+  animPlaying = false;
+  clearInterval(animTimer);
+  document.getElementById('timeline-bar').classList.remove('visible');
+  document.getElementById('btn-timeline').classList.remove('active');
+  document.getElementById('anim-play-btn').textContent = '▶';
+  currentMode = timelineMode || 'cluster';
+  document.querySelectorAll('.map-btn').forEach(b => b.classList.remove('active'));
+  if (currentMode === 'cluster') document.getElementById('btn-cluster').classList.add('active');
+  if (currentMode === 'heat') document.getElementById('btn-heat').classList.add('active');
+  if (currentMode === 'dots') document.getElementById('btn-dots').classList.add('active');
+  renderMapMode(filteredData);
+  updateStats(filteredData);
+  updateInfoBar(filteredData.length, allData.length);
+}
+
+function toggleAnimPlay() {
+  animPlaying = !animPlaying;
+  document.getElementById('anim-play-btn').textContent = animPlaying ? '⏸' : '▶';
+  if (animPlaying) {
+    animTimer = setInterval(() => {
+      animYear++;
+      if (animYear > MAX_YEAR) { animYear = MIN_YEAR; }
+      renderTimelineYear(animYear);
+    }, 600);
+  } else {
+    clearInterval(animTimer);
+  }
+}
+
+function renderTimelineYear(year) {
+  document.getElementById('anim-year-display').textContent = year;
+  const pct = ((year - MIN_YEAR) / (MAX_YEAR - MIN_YEAR)) * 100;
+  document.getElementById('anim-progress-fill').style.width = pct + '%';
+
+  const yearData = filteredData.filter(r => parseInt(r.EventDate?.substring(0, 4) || 0) === year);
+  clearLayers();
+  if (timelineMode === 'heat') renderHeat(yearData);
+  else if (timelineMode === 'dots') renderDots(yearData);
+  else renderCluster(yearData);
+  updateInfoBar(yearData.length, allData.length);
+  // Update stats for this year
+  updateStats(yearData);
+}
+
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const icon = header.querySelector('.toggle-icon');
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  icon.textContent = isOpen ? '▸' : '▾';
+}
+
+function toggleHelp() {
+  document.getElementById('help-drawer').classList.toggle('open');
+}
+
+function toggleDocs() {
+  document.getElementById('docs-drawer').classList.toggle('open');
+}
+
+// **************************************************
+// ************** INITIALIZATION ********************
+// **************************************************
+
+initMap();
+loadTopoData();
+loadData();
+
+// re-layout on window resize
+let resizeTimer = null;
+window.addEventListener('resize', function() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function() {
+    map.invalidateSize();
+    if (currentBasemap === 'spike') {
+      if (spikeViewState) renderCountyView(spikeViewState, filteredData);
+      else renderSpikeMap(filteredData);
+    }
+  }, 200);
+});
+</script>
+</body>
+</html>
+
+<!-- *************** THE END! ***************** -->
